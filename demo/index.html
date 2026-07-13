@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Interactive @mango-iiif/av configuration builder">
+    <title>Mango IIIF AV configuration builder</title>
+    <script type="module" src="/main.ts"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">@mango-iiif/av</p>
+        <h1>AV configuration builder</h1>
+        <p>Explore IIIF audio, video, HLS, chapters, transcripts, annotations, and Media Chrome styling.</p>
+      </div>
+      <nav><a href="/composable.html">Composable demo</a><a href="/api.html">API documentation</a></nav>
+    </header>
+
+    <main>
+      <aside class="builder" aria-label="Player configuration">
+        <fieldset>
+          <legend>Media example</legend>
+          <label>Preset
+            <select id="preset">
+              <option value="video">Video</option>
+              <option value="hls">HLS video</option>
+              <option value="audio">Audio</option>
+            </select>
+          </label>
+          <label>Interface language
+            <select id="language">
+              <option value="en">English</option>
+              <option value="cy">Cymraeg example</option>
+              <option value="fr">Français example</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Features</legend>
+          <div id="feature-controls" class="checks"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Theme</legend>
+          <label>Accent <input id="accent" type="color" value="#5b3fd6"></label>
+          <label>Background <input id="background" type="color" value="#ffffff"></label>
+          <label>Corner radius <input id="radius" type="range" min="0" max="24" value="10"></label>
+          <label>Panel width <input id="panel-width" type="range" min="280" max="520" value="384"></label>
+        </fieldset>
+
+        <details open>
+          <summary>Generated configuration</summary>
+          <pre><code id="generated-code"></code></pre>
+          <button id="copy-code" type="button">Copy code</button>
+        </details>
+      </aside>
+
+      <section class="preview" aria-labelledby="preview-heading">
+        <div class="preview-heading">
+          <div><p class="eyebrow">Live preview</p><h2 id="preview-heading">Media Chrome player</h2></div>
+          <span id="event-status" role="status">Ready</span>
+        </div>
+        <mango-av-media id="player"></mango-av-media>
+
+        <section class="style-recipes">
+          <h2>Style recipes</h2>
+          <p>The player deliberately exposes CSS custom properties so a host application can create a theme without reaching into its shadow DOM.</p>
+          <div class="recipes">
+            <button type="button" data-theme="tailwind">Tailwind-inspired audio</button>
+            <button type="button" data-theme="archive">Archive dark</button>
+            <button type="button" data-theme="reset">Default</button>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

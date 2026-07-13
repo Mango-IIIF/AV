@@ -1,0 +1,61 @@
+:root {
+  color: #18181b;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  background: #f0eff5;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+.site-header { align-items: center; background: #15121f; color: white; display: flex; justify-content: space-between; padding: 2rem max(1.2rem, calc((100vw - 1500px) / 2)); }
+.site-header h1 { font-size: clamp(1.8rem, 4vw, 3.2rem); letter-spacing: -.04em; margin: 0; }
+.site-header p:not(.eyebrow) { color: #c9c4d8; margin-bottom: 0; }
+.site-header a { border: 1px solid #7d728f; border-radius: 999px; color: white; padding: .7rem 1rem; text-decoration: none; }
+.site-header nav { display: flex; flex-wrap: wrap; gap: .5rem; }
+.eyebrow { color: #8b6cff; font-size: .75rem; font-weight: 800; letter-spacing: .13em; margin: 0 0 .45rem; text-transform: uppercase; }
+main { display: grid; gap: 1.2rem; grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr); margin: 1.2rem auto 3rem; max-width: 1500px; padding: 0 1.2rem; }
+.builder, .preview { background: white; border: 1px solid #dcdae4; border-radius: 1rem; box-shadow: 0 12px 35px #29223d12; }
+.builder { align-self: start; padding: 1rem; position: sticky; top: 1rem; }
+fieldset { border: 0; border-bottom: 1px solid #e6e4eb; margin: 0; padding: .8rem 0 1rem; }
+legend { font-weight: 750; padding: 0; }
+label { align-items: center; display: flex; gap: .5rem; justify-content: space-between; margin-top: .6rem; }
+select, input:not([type=checkbox]) { max-width: 10rem; }
+.checks { display: grid; grid-template-columns: 1fr 1fr; }
+.checks label { justify-content: flex-start; }
+details { margin-top: 1rem; }
+summary { cursor: pointer; font-weight: 750; }
+pre { background: #17151d; border-radius: .6rem; color: #eeeaf7; font-size: .72rem; max-height: 19rem; overflow: auto; padding: .8rem; white-space: pre-wrap; }
+#copy-code, .recipes button { background: #211b31; border: 0; border-radius: .4rem; color: white; padding: .55rem .8rem; }
+.preview { min-width: 0; padding: 1rem; }
+.preview-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 1rem; }
+.preview-heading h2 { margin: 0; }
+#event-status { background: #eeebf7; border-radius: 999px; color: #4c386d; font-size: .8rem; padding: .4rem .65rem; }
+.style-recipes { border-top: 1px solid #e6e4eb; margin-top: 1.2rem; padding-top: 1rem; }
+.style-recipes h2 { margin-bottom: .2rem; }
+.style-recipes p { color: #64606c; }
+.recipes { display: flex; flex-wrap: wrap; gap: .5rem; }
+@media (max-width: 950px) {
+  main { grid-template-columns: 1fr; }
+  .builder { position: static; }
+}
+@media (max-width: 600px) {
+  .site-header { align-items: flex-start; flex-direction: column; gap: 1.2rem; }
+  .checks { grid-template-columns: 1fr; }
+}
+.docs-page { align-items: start; grid-template-columns: 15rem minmax(0, 1fr); }
+.docs-nav { background: white; border: 1px solid #dcdae4; border-radius: .8rem; display: grid; gap: .65rem; padding: 1rem; position: sticky; top: 1rem; }
+.docs-nav a { color: #5b3fd6; }
+.docs-content { background: white; border: 1px solid #dcdae4; border-radius: .8rem; padding: clamp(1rem, 3vw, 2.5rem); }
+.docs-content section { border-bottom: 1px solid #e6e4eb; padding: 1rem 0 2rem; }
+.docs-content h2 { font-size: clamp(1.5rem, 3vw, 2.2rem); margin: 0; }
+.docs-content code { background: #eeebf7; border-radius: .2rem; padding: .1rem .25rem; }
+.docs-content pre code { background: transparent; padding: 0; }
+@media (max-width: 720px) { .docs-page { grid-template-columns: 1fr; } .docs-nav { position: static; } }
+.composition { align-items: start; grid-template-areas: "player chapters" "transcript annotations" "events events"; grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); }
+.composition > section, .composition > aside { background: white; border: 1px solid #dcdae4; border-radius: 1rem; min-width: 0; padding: 1rem; }
+.composition-player { grid-area: player; }
+.composition-chapters { grid-area: chapters; }
+.composition-transcript { grid-area: transcript; }
+.composition-annotations { grid-area: annotations; }
+.composition-events { background: #211b31; border-radius: .6rem; color: white; grid-area: events; padding: .8rem 1rem; }
+@media (max-width: 850px) { .composition { grid-template-areas: "player" "chapters" "transcript" "annotations" "events"; grid-template-columns: 1fr; } }

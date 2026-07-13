@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Composable @mango-iiif/av Web Components">
+    <title>Composable Mango AV components</title>
+    <script type="module" src="/composable.ts"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div><p class="eyebrow">@mango-iiif/av</p><h1>Composable components</h1><p>Independent UI elements synchronized through one controller.</p></div>
+      <a href="/">Configuration builder</a>
+    </header>
+    <main class="composition">
+      <section class="composition-player">
+        <p class="eyebrow">Playback area</p>
+        <mango-av-player></mango-av-player>
+      </section>
+      <aside class="composition-chapters">
+        <p class="eyebrow">Application sidebar</p>
+        <mango-av-chapters></mango-av-chapters>
+      </aside>
+      <section class="composition-transcript">
+        <p class="eyebrow">Lower workspace panel</p>
+        <mango-av-transcript></mango-av-transcript>
+      </section>
+      <aside class="composition-annotations">
+        <p class="eyebrow">Independent inspector</p>
+        <mango-av-annotations></mango-av-annotations>
+      </aside>
+      <output id="component-events" class="composition-events" aria-live="polite">Waiting for the shared controller…</output>
+    </main>
+  </body>
+</html>

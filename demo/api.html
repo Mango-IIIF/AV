@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="@mango-iiif/av API documentation">
+    <title>@mango-iiif/av API</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div><p class="eyebrow">@mango-iiif/av</p><h1>API documentation</h1><p>Framework-free IIIF audio and video.</p></div>
+      <a href="/">Configuration builder</a>
+    </header>
+    <main class="docs-page">
+      <nav class="docs-nav" aria-label="API contents">
+        <strong>Contents</strong>
+        <a href="#element">Components</a>
+        <a href="#config">Configuration</a>
+        <a href="#controller">Controller</a>
+        <a href="#events">Events</a>
+        <a href="#styling">Styling</a>
+      </nav>
+      <article class="docs-content">
+        <section id="element"><p class="eyebrow">Custom elements</p><h2>Complete or composable</h2><p>Use <code>&lt;mango-av-media&gt;</code> for the complete experience. Use <code>&lt;mango-av-player&gt;</code>, <code>&lt;mango-av-chapters&gt;</code>, <code>&lt;mango-av-transcript&gt;</code>, and <code>&lt;mango-av-annotations&gt;</code> independently by assigning them one shared controller.</p><pre><code>import '@mango-iiif/av';
+
+const controller = new AVPlayerController();
+player.controller = controller;
+chapters.controller = controller;
+transcript.controller = controller;
+annotations.controller = controller;
+await controller.load(manifest);</code></pre><p><a href="/composable.html">Open the composable components demonstration</a>.</p></section>
+        <section id="config"><p class="eyebrow">Typed options</p><h2>AVPlayerConfig</h2><p>Configure controls, information panels, transcript behavior, resume storage, languages, start position, request handling, and annotation persistence.</p><pre><code>player.config = {
+  panels: { chapters: true, transcript: true },
+  controls: { captions: true, playbackRate: true },
+  resume: { enabled: true, ttlDays: 30 },
+  resolveRequest: async (url, { canvas }) =&gt; sign(url, canvas)
+};</code></pre></section>
+        <section id="controller"><p class="eyebrow">Headless API</p><h2>AVPlayerController</h2><p>Use <code>@mango-iiif/av/core</code> when an application owns the UI. Playback methods include <code>load</code>, <code>attachMedia</code>, <code>play</code>, <code>pause</code>, <code>seekTo</code>, <code>selectCanvas</code>, <code>next</code>, <code>previous</code>, and <code>selectSource</code>.</p><p>Annotation methods are <code>createAnnotation</code>, <code>updateAnnotation</code>, and <code>removeAnnotation</code>.</p><h3>Translations</h3><p>Pass partial <code>strings</code> overrides in the controller configuration. The dictionary is shared by every connected component, while <code>preferredLanguages</code> selects IIIF language-map values and the Media Chrome language.</p><pre><code>const controller = new AVPlayerController({
+  preferredLanguages: ['cy', 'en', 'none'],
+  strings: {
+    chapters: 'Penodau',
+    transcript: 'Trawsgrifiad',
+    sourceNumber: 'Ffynhonnell {number}',
+    resumePrompt: 'Parhau o {time}?'
+  }
+});</code></pre></section>
+        <section id="events"><p class="eyebrow">Integration</p><h2>Events</h2><p>The shared controller is an <code>EventTarget</code> and emits <code>av-ready</code>, <code>av-error</code>, <code>av-canvaschange</code>, <code>av-sourcechange</code>, <code>av-play</code>, <code>av-pause</code>, <code>av-timeupdate</code>, <code>av-seek</code>, <code>av-ended</code>, <code>av-annotationschange</code>, <code>av-configchange</code>, and <code>av-statechange</code>. Every connected component reacts to the same event stream.</p></section>
+        <section id="styling"><p class="eyebrow">Media Chrome themes</p><h2>Styling</h2><p>Theme through <code>--mango-av-accent</code>, <code>--mango-av-background</code>, <code>--mango-av-surface</code>, <code>--mango-av-text</code>, <code>--mango-av-border</code>, <code>--mango-av-radius</code>, and the standard Media Chrome variables. Replace regions with the <code>header</code>, <code>before-player</code>, <code>player-overlay</code>, <code>controls</code>, and <code>after-player</code> slots.</p></section>
+        <p>For full type signatures and normalized IIIF interfaces, see <code>docs/API.md</code> in the package repository.</p>
+      </article>
+    </main>
+  </body>
+</html>

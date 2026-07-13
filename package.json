@@ -1,0 +1,94 @@
+{
+  "name": "@mango-iiif/av",
+  "version": "0.0.1",
+  "description": "Framework-free IIIF audio and video components powered by Media Chrome.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "npm@10.9.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mango-IIIF/av.git"
+  },
+  "homepage": "https://github.com/Mango-IIIF/av#readme",
+  "bugs": {
+    "url": "https://github.com/Mango-IIIF/av/issues"
+  },
+  "keywords": [
+    "iiif",
+    "audio",
+    "video",
+    "hls",
+    "media-chrome",
+    "web-components"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./media": {
+      "types": "./dist/media.d.ts",
+      "import": "./dist/media.js"
+    },
+    "./player": {
+      "types": "./dist/player.d.ts",
+      "import": "./dist/player.js"
+    },
+    "./chapters": {
+      "types": "./dist/chapters.d.ts",
+      "import": "./dist/chapters.js"
+    },
+    "./transcript": {
+      "types": "./dist/transcript-element.d.ts",
+      "import": "./dist/transcript-element.js"
+    },
+    "./annotations": {
+      "types": "./dist/annotations.d.ts",
+      "import": "./dist/annotations.js"
+    }
+  },
+  "sideEffects": true,
+  "scripts": {
+    "dev": "vite --config vite.demo.config.ts",
+    "build": "npm run build:lib && npm run build:demo",
+    "build:lib": "tsup src/index.ts src/core.ts src/media.ts src/player.ts src/chapters.ts src/transcript-element.ts src/annotations.ts --format esm --dts --sourcemap --clean --target es2022",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm test && npm run build",
+    "pack:check": "npm pack --dry-run",
+    "prepack": "npm run build:lib"
+  },
+  "dependencies": {
+    "hls-video-element": "^1.5.11",
+    "media-chrome": "^4.19.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^24.1.0",
+    "jsdom": "^27.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10"
+  }
+}
