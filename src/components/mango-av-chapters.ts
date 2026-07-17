@@ -8,7 +8,8 @@ const styles = `${componentTheme}
   h2 { font-size: 1rem; margin: 0 0 .5rem; }
   ul { list-style: none; margin: 0; padding: 0; }
   ul ul { border-left: 1px solid var(--mango-av-border); margin-left: .8rem; padding-left: .55rem; }
-  button { background: transparent; border: 0; border-radius: .35rem; color: inherit; display: grid; gap: .15rem; padding: .5rem; text-align: left; width: 100%; }
+  li { margin-block: .3rem; }
+  button { background: transparent; border: 0; border-radius: 0; color: inherit; display: grid; gap: .15rem; padding: .5rem; text-align: left; width: 100%; }
   button:hover { background: var(--mango-av-surface); }
   button.active { background: color-mix(in srgb, var(--mango-av-accent) 14%, transparent); box-shadow: inset 3px 0 var(--mango-av-accent); }
 `;

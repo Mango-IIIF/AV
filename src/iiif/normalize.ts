@@ -291,12 +291,17 @@ const collectSupplementing = (
           return [cue];
         });
         if (cues.length > 0) {
-          transcripts.push({
-            id: `${pageId ?? canvasId}/inline-transcript`,
-            label: label(page.label, languages, ui.transcript),
-            machineGenerated: false,
-            cues,
-          });
+          const transcriptId = `${pageId ?? canvasId}/inline-transcript`;
+          const existing = transcripts.find((transcript) => transcript.id === transcriptId);
+          if (existing?.cues) existing.cues.push(...cues);
+          else {
+            transcripts.push({
+              id: transcriptId,
+              label: label(page.label, languages, ui.transcript),
+              machineGenerated: false,
+              cues,
+            });
+          }
         }
       }
       index += 1;

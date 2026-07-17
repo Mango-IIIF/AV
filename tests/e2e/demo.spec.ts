@@ -5,10 +5,99 @@ test('configuration builder switches media presets and updates generated config'
   await expect(page.getByRole('heading', { name: 'AV configuration builder' })).toBeVisible();
   await expect(page.locator('mango-av-media')).toBeVisible();
   await expect(page.locator('mango-av-media media-play-button')).toBeVisible();
+  await expect.poll(() => page.locator('mango-av-media').evaluate((element) => {
+    const column = element.shadowRoot?.querySelector('.player-column')?.getBoundingClientRect();
+    const controller = element.shadowRoot?.querySelector('media-controller')?.getBoundingClientRect();
+    return column && controller ? Math.abs(column.bottom - controller.bottom) : Number.POSITIVE_INFINITY;
+  })).toBeLessThan(1);
   await page.locator('#preset').selectOption('audio');
   await expect.poll(() => page.locator('mango-av-media').evaluate((element: any) => element.manifest?.id)).toBe('https://example.org/manifest/audio-demo');
+  const viewer = page.locator('mango-av-media');
+  await expect(viewer.getByRole('button', { name: 'Next section' })).toHaveCount(0);
+  await expect(viewer.getByLabel('Auto-advance', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Previous and next controls').check();
+  await page.getByLabel('Auto-advance control').check();
+  await expect(viewer.getByRole('button', { name: 'Next section' })).toBeVisible();
+  await expect(viewer.getByLabel('Auto-advance', { exact: true })).toBeVisible();
   await page.getByLabel('Chapters').uncheck();
   await expect(page.locator('#generated-code')).toContainText('"chapters": false');
+});
+
+test('audio artwork can show a moving transcript independently from the volume visualizer', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#preset').selectOption('audio');
+  await page.getByLabel('Transcript in audio artwork').check();
+
+  const art = page.locator('mango-av-media .audio-art');
+  await expect(art.locator('.audio-art-title')).toHaveCount(0);
+  await expect(art.locator('.audio-art-cue.active')).toContainText('Welcome to the Mango');
+  await expect(art.locator('.audio-art-cue.adjacent')).toContainText('The transcript, chapters');
+
+  await page.locator('mango-av-media').evaluate((element: any) => {
+    element.controller.media.currentTime = 7;
+    element.controller.media.dispatchEvent(new Event('seeking'));
+  });
+  await expect(art.locator('.audio-art-cue.active')).toContainText('The transcript, chapters');
+  await expect(art.locator('.audio-art-cue.adjacent')).toContainText('Welcome to the Mango');
+
+  await page.locator('mango-av-media').evaluate((element: any) => {
+    element.controller.media.currentTime = 1;
+    element.controller.media.dispatchEvent(new Event('seeking'));
+  });
+  await expect(art.locator('.audio-art-cue.active')).toContainText('Welcome to the Mango');
+  await expect(art.locator('.audio-art-cue.adjacent')).toContainText('The transcript, chapters');
+  await expect(art.locator('.audio-art-cue.adjacent')).toHaveCSS('visibility', 'visible');
+
+  await page.getByLabel('Audio visualizer').selectOption('pulse');
+  await expect(art).toHaveClass(/visualizer/);
+  await expect.poll(() => art.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).getPropertyValue('--mango-av-wave-strength')),
+  )).toBe(0);
+  await page.getByLabel('Audio visualizer').selectOption('waveform');
+  await expect(art).toHaveClass(/visualizer--waveform/);
+  await expect(art.locator('canvas')).toHaveCount(1);
+  await page.getByLabel('Audio visualizer').selectOption('spectrum');
+  await expect(art).toHaveClass(/visualizer--spectrum/);
+  await expect(art.locator('canvas')).toHaveCount(1);
+  await expect(page.locator('#generated-code')).toContainText('"visualizer": "spectrum"');
+});
+
+test('configuration builder loads a custom manifest URL', async ({ page }) => {
+  const manifestUrl = 'https://example.org/custom-manifest.json';
+  await page.route(manifestUrl, async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      '@context': 'http://iiif.io/api/presentation/3/context.json',
+      id: manifestUrl,
+      type: 'Manifest',
+      label: { en: ['Custom manifest'] },
+      items: [{
+        id: 'https://example.org/custom-canvas',
+        type: 'Canvas',
+        duration: 10,
+        items: [{
+          id: 'https://example.org/custom-page',
+          type: 'AnnotationPage',
+          items: [{
+            id: 'https://example.org/custom-painting',
+            type: 'Annotation',
+            motivation: 'painting',
+            body: { id: 'https://example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' },
+            target: 'https://example.org/custom-canvas',
+          }],
+        }],
+      }],
+    }),
+  }));
+
+  await page.goto('/');
+  await page.getByLabel('Manifest URL').fill(manifestUrl);
+  await page.getByRole('button', { name: 'Load' }).click();
+
+  await expect.poll(() => page.locator('mango-av-media').evaluate((element: any) => element.controller.manifest?.id)).toBe(manifestUrl);
+  await expect(page.locator('#preset')).toHaveValue('custom');
+  await expect(page.getByRole('status')).toHaveText('Custom manifest loaded');
+  await expect(page.locator('#generated-code')).toContainText(`player.manifest = "${manifestUrl}"`);
 });
 
 test('HLS preset lazily upgrades the HLS media element', async ({ page }) => {
@@ -30,6 +119,7 @@ test('style recipes change the public CSS custom properties', async ({ page }) =
 
 test('string overrides translate the complete component and generated configuration', async ({ page }) => {
   await page.goto('/');
+  await page.getByLabel('Previous and next controls').check();
   await page.locator('#language').selectOption('cy');
   await expect(page.getByRole('tab', { name: 'Penodau' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Adran nesaf' })).toContainText('Nesaf');

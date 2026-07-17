@@ -2,6 +2,7 @@ import { AVPlayerController } from '../controller';
 import { loadTranscript } from '../transcript';
 import { ensureMediaChrome } from './media-chrome';
 import { playFromInteraction } from './playback';
+import { AudioArtVisualizer, audioArtContentHtml, audioArtTranscriptHtml, resolveAudioVisualizerMode, syncAudioArtTranscript } from './audio-art';
 import type {
   AVAnnotation,
   AVCanvas,
@@ -67,15 +68,24 @@ const styles = `
   .header h2 { font-size: 1.15rem; margin: 0; }
   .header p { color: var(--mango-av-muted); margin: .35rem 0 0; }
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, var(--mango-av-panel-width)); }
-  .player-column { background: #08080a; min-width: 0; position: relative; }
+  .player-column { align-self: start; background: #08080a; min-width: 0; position: relative; }
   media-controller { display: block; width: 100%; }
   media-controller:not([audio]) { aspect-ratio: var(--mango-av-player-aspect-ratio); }
   video, hls-video { display: block; height: 100%; object-fit: contain; width: 100%; }
   audio { width: 100%; }
   media-control-bar { width: 100%; }
-  .audio-art { align-items: center; aspect-ratio: 16 / 7; background: linear-gradient(135deg, var(--mango-av-accent), #111); color: white; display: flex; justify-content: center; padding: 2rem; text-align: center; }
+  .audio-art { --mango-av-wave-edge-strength: 0%; --mango-av-wave-mid-strength: 0%; --mango-av-wave-rise: 8%; --mango-av-wave-strength: 0%; align-items: center; aspect-ratio: 16 / 7; background: linear-gradient(#09080d, #111019); color: white; display: flex; justify-content: center; overflow: hidden; padding: 2rem; position: relative; text-align: center; }
+  .audio-art.visualizer--pulse { background: radial-gradient(ellipse 140% 72% at 50% calc(100% + var(--mango-av-wave-rise)), color-mix(in srgb, var(--mango-av-accent) var(--mango-av-wave-strength), transparent) 0%, color-mix(in srgb, var(--mango-av-accent) var(--mango-av-wave-mid-strength), transparent) 40%, color-mix(in srgb, var(--mango-av-accent) var(--mango-av-wave-edge-strength), transparent) 62%, transparent 78%), linear-gradient(#09080d, #111019); }
+  .audio-art-text { display: contents; }
+  .audio-art-visualizer-canvas { height: 100%; inset: 0; pointer-events: none; position: absolute; width: 100%; }
   .audio-art img { height: 100%; inset: 0; object-fit: contain; position: absolute; width: 100%; }
-  .audio-art span { font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; }
+  .audio-art-title { font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; position: relative; z-index: 1; }
+  .audio-art-transcript { height: 100%; inset: 0; overflow: hidden; position: absolute; z-index: 1; }
+  .audio-art-cue { align-items: center; display: flex; flex-direction: column; font-size: clamp(.7rem, 1.3vw, .875rem); font-weight: 550; gap: .15rem; left: 12%; line-height: 1.35; position: absolute; right: 12%; top: 50%; transition: opacity 360ms ease, transform 480ms cubic-bezier(.22, 1, .36, 1); }
+  .audio-art-transcript.seeking .audio-art-cue { transition: none; }
+  .audio-art-cue.active { font-size: clamp(.78rem, 1.5vw, 1rem); font-weight: 650; }
+  .audio-art-cue > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .audio-art-speaker { font-size: .7em; letter-spacing: .04em; text-transform: uppercase; }
   .player-toolbar { align-items: center; background: #151518; color: #fff; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; padding: .55rem .7rem; }
   .player-toolbar button, .player-toolbar select { background: #29292e; border: 1px solid #44444a; border-radius: .35rem; color: white; padding: .4rem .55rem; }
   .player-toolbar .group { align-items: center; display: flex; gap: .45rem; }
@@ -91,7 +101,9 @@ const styles = `
   .empty { color: var(--mango-av-muted); font-style: italic; }
   .chapter-list, .annotation-list, .cue-list, .file-list { list-style: none; margin: 0; padding: 0; }
   .chapter-list .chapter-list { border-left: 1px solid var(--mango-av-border); margin-left: .8rem; padding-left: .55rem; }
+  .chapter { margin-block: .3rem; }
   .chapter button, .annotation button, .cue button { background: transparent; border: 0; border-radius: .35rem; color: inherit; display: grid; gap: .15rem; padding: .5rem; text-align: left; width: 100%; }
+  .chapter button { border-radius: 0; }
   .chapter button:hover, .annotation button:hover, .cue button:hover { background: var(--mango-av-surface); }
   .chapter button.active, .annotation button.active, .cue button.active { background: color-mix(in srgb, var(--mango-av-accent) 14%, transparent); box-shadow: inset 3px 0 var(--mango-av-accent); }
   .time { color: var(--mango-av-muted); font-size: .78rem; }
@@ -162,6 +174,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
   #loadingToken = 0;
   #resolvedSourceUrl: string | undefined;
   #sourceToken = 0;
+  #visualizer = new AudioArtVisualizer();
 
   constructor() {
     super();
@@ -194,6 +207,8 @@ export class MangoAVMediaElement extends HTMLElementBase {
           if (this.#activePanel === 'annotations') this.#renderPanelOnly();
         } else if (type === 'av-timeupdate') {
           this.#syncTimedContent();
+        } else if (type === 'av-seek') {
+          this.#syncTimedContent((event.detail as AVPlayerEventMap['av-seek']).to, true);
         }
         this.dispatchEvent(new CustomEvent(type, {
           detail: event.detail,
@@ -237,6 +252,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
   }
 
   disconnectedCallback(): void {
+    this.#visualizer.disconnect();
     this.player.destroy();
   }
 
@@ -286,6 +302,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
   }
 
   #render(): void {
+    this.#visualizer.disconnect();
     const state = this.player.state;
     const manifest = state.manifest;
     const canvas = this.player.canvas;
@@ -301,7 +318,13 @@ export class MangoAVMediaElement extends HTMLElementBase {
     </div>`;
     this.#bindInteractions();
     const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-    if (media) this.player.attachMedia(media);
+    if (media) {
+      this.player.attachMedia(media);
+      const art = this.#root.querySelector<HTMLElement>('.audio-art.visualizer');
+      const visualizerMode = resolveAudioVisualizerMode(this.player.config.audioArt.visualizer);
+      if (art && media instanceof HTMLAudioElement && visualizerMode) this.#visualizer.connect(media, art, visualizerMode);
+    }
+    this.#syncTimedContent();
   }
 
   #renderReady(manifest: AVManifest, canvas: AVCanvas, kind: 'audio' | 'video'): string {
@@ -317,13 +340,17 @@ export class MangoAVMediaElement extends HTMLElementBase {
       panels.supplementalFiles ? ['files', ui.files] : undefined,
     ].filter((value): value is [string, string] => Boolean(value));
     const showPanel = this.#activePanel !== 'none' && panelTabs.length > 0;
+    const showSourceSelector = controls.sourceSelector && canvas.sources.length > 1;
+    const showDownload = controls.download && canvas.rendering.length > 0;
+    const showPlayerToolbar = controls.navigation || controls.autoAdvance || showSourceSelector || showDownload;
+    const visualizerMode = resolveAudioVisualizerMode(this.player.config.audioArt.visualizer);
     return `
       ${this.#resumeTime !== undefined ? `<div class="resume">${escapeHtml(formatString(ui.resumePrompt, { time: formatTime(this.#resumeTime) }))} <button type="button" data-action="resume">${escapeHtml(ui.resume)}</button><button type="button" data-action="dismiss-resume">${escapeHtml(ui.startOver)}</button></div>` : ''}
       <div class="layout" ${showPanel ? '' : 'style="grid-template-columns: 1fr"'}>
         <section class="player-column" aria-label="${escapeHtml(ui.mediaPlayer)}">
           <slot name="before-player"></slot>
           <media-controller ${kind === 'audio' ? 'audio' : ''} ${this.#mediaChromeLanguage()}>
-            ${kind === 'audio' ? `<div class="audio-art"><span>${escapeHtml(canvas.label)}</span></div>` : ''}
+            ${kind === 'audio' ? `<div class="audio-art ${visualizerMode ? `visualizer visualizer--${visualizerMode}` : ''}">${audioArtContentHtml(canvas.label, this.#transcriptCues, Boolean(this.player.config.audioArt.transcript), visualizerMode)}</div>` : ''}
             ${source ? this.#mediaHtml(canvas, source.kind) : `<div class="audio-art"><span>${escapeHtml(ui.noPlayableMedia)}</span></div>`}
             <slot name="player-overlay"></slot>
             <slot name="controls">
@@ -343,17 +370,17 @@ export class MangoAVMediaElement extends HTMLElementBase {
             </slot>
           </media-controller>
           ${this.#searchMarkersHtml()}
-          <div class="player-toolbar">
-            <div class="group">
+          ${showPlayerToolbar ? `<div class="player-toolbar">
+            ${controls.navigation ? `<div class="group">
               <button type="button" data-action="previous" ${canvas.index === 0 ? 'disabled' : ''} aria-label="${escapeHtml(ui.previousSection)}">← ${escapeHtml(ui.previous)}</button>
               <button type="button" data-action="next" ${canvas.index === manifest.canvases.length - 1 && !this.player.state.repeat ? 'disabled' : ''} aria-label="${escapeHtml(ui.nextSection)}">${escapeHtml(ui.next)} →</button>
-            </div>
-            <div class="group">
-              ${controls.sourceSelector && canvas.sources.length > 1 ? `<label><span class="sr-only">${escapeHtml(ui.mediaSource)}</span><select data-action="source">${canvas.sources.map((item, index) => `<option value="${index}" ${index === this.player.state.sourceIndex ? 'selected' : ''}>${escapeHtml(item.label ?? item.format ?? formatString(ui.sourceNumber, { number: index + 1 }))}</option>`).join('')}</select></label>` : ''}
-              ${controls.download && canvas.rendering.length > 0 ? `<label><span class="sr-only">${escapeHtml(ui.downloadMediaFile)}</span><select data-action="download"><option value="">${escapeHtml(ui.download)}…</option>${canvas.rendering.map((file) => `<option value="${escapeHtml(file.id)}" data-filename="${escapeHtml(file.filename ?? '')}">${escapeHtml(file.label)}</option>`).join('')}</select></label>` : ''}
-              <label><input type="checkbox" data-action="auto-advance" ${this.player.state.autoAdvance ? 'checked' : ''}> ${escapeHtml(ui.autoAdvance)}</label>
-            </div>
-          </div>
+            </div>` : ''}
+            ${showSourceSelector || showDownload || controls.autoAdvance ? `<div class="group">
+              ${showSourceSelector ? `<label><span class="sr-only">${escapeHtml(ui.mediaSource)}</span><select data-action="source">${canvas.sources.map((item, index) => `<option value="${index}" ${index === this.player.state.sourceIndex ? 'selected' : ''}>${escapeHtml(item.label ?? item.format ?? formatString(ui.sourceNumber, { number: index + 1 }))}</option>`).join('')}</select></label>` : ''}
+              ${showDownload ? `<label><span class="sr-only">${escapeHtml(ui.downloadMediaFile)}</span><select data-action="download"><option value="">${escapeHtml(ui.download)}…</option>${canvas.rendering.map((file) => `<option value="${escapeHtml(file.id)}" data-filename="${escapeHtml(file.filename ?? '')}">${escapeHtml(file.label)}</option>`).join('')}</select></label>` : ''}
+              ${controls.autoAdvance ? `<label><input type="checkbox" data-action="auto-advance" ${this.player.state.autoAdvance ? 'checked' : ''}> ${escapeHtml(ui.autoAdvance)}</label>` : ''}
+            </div>` : ''}
+          </div>` : ''}
           <slot name="after-player"></slot>
         </section>
         ${showPanel ? `<aside class="panel">
@@ -531,6 +558,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
       const cues = await loadTranscript(resource, transcriptOptions);
       if (token !== this.#loadingToken) return;
       this.#transcriptCues = cues;
+      this.#renderAudioArt();
       if (this.#activePanel === 'transcript') this.#renderPanelOnly();
     } catch (cause) {
       if (token !== this.#loadingToken) return;
@@ -556,8 +584,8 @@ export class MangoAVMediaElement extends HTMLElementBase {
     }
   }
 
-  #syncTimedContent(): void {
-    const time = this.player.state.currentTime;
+  #syncTimedContent(time = this.player.state.currentTime, instant = false): void {
+    syncAudioArtTranscript(this.#root, time, instant);
     const rows = this.#root.querySelectorAll<HTMLElement>('[data-start][data-end]');
     let active: HTMLElement | undefined;
     rows.forEach((row) => {
@@ -570,6 +598,15 @@ export class MangoAVMediaElement extends HTMLElementBase {
     if (active && this.player.config.transcript.autoScroll) {
       active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
+  }
+
+  #renderAudioArt(): void {
+    const art = this.#root.querySelector<HTMLElement>('.audio-art');
+    const canvas = this.player.canvas;
+    if (!art || !canvas || this.player.source?.kind !== 'audio') return;
+    const text = art.querySelector<HTMLElement>('.audio-art-text');
+    if (text) text.innerHTML = audioArtTranscriptHtml(canvas.label, this.#transcriptCues, Boolean(this.player.config.audioArt.transcript));
+    syncAudioArtTranscript(art, this.player.state.currentTime);
   }
 }
 

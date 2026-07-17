@@ -27,10 +27,16 @@ media.config = {
     supplementalFiles: true,
   },
   controls: {
+    navigation: false,
+    autoAdvance: false,
     captions: true,
     playbackRate: true,
     pictureInPicture: true,
     fullscreen: true,
+  },
+  audioArt: {
+    transcript: true,
+    visualizer: 'waveform',
   },
   resume: { enabled: true },
 };

@@ -1,16 +1,20 @@
 import '../src/index';
-import type { AVPlayerConfig, MangoAVMediaElement } from '../src/index';
+import type { AVAudioVisualizerMode, AVPlayerConfig, MangoAVMediaElement } from '../src/index';
 import { manifests } from './manifests';
 import './styles.css';
 
 const player = document.querySelector<MangoAVMediaElement>('#player');
 const preset = document.querySelector<HTMLSelectElement>('#preset');
+const manifestForm = document.querySelector<HTMLFormElement>('#manifest-form');
+const manifestUrl = document.querySelector<HTMLInputElement>('#manifest-url');
+const loadManifest = document.querySelector<HTMLButtonElement>('#load-manifest');
 const language = document.querySelector<HTMLSelectElement>('#language');
 const featureControls = document.querySelector<HTMLElement>('#feature-controls');
+const audioVisualizer = document.querySelector<HTMLSelectElement>('#audio-visualizer');
 const generatedCode = document.querySelector<HTMLElement>('#generated-code');
 const eventStatus = document.querySelector<HTMLElement>('#event-status');
 
-if (!player || !preset || !language || !featureControls || !generatedCode || !eventStatus) {
+if (!player || !preset || !manifestForm || !manifestUrl || !loadManifest || !language || !featureControls || !audioVisualizer || !generatedCode || !eventStatus) {
   throw new Error('Demo controls could not be initialized.');
 }
 
@@ -25,8 +29,10 @@ const features = [
   ['pictureInPicture', 'Picture in picture', true],
   ['fullscreen', 'Fullscreen', true],
   ['fileDownload', 'Download control', false],
-  ['autoAdvance', 'Auto-advance', false],
+  ['navigation', 'Previous and next controls', false],
+  ['autoAdvance', 'Auto-advance control', false],
   ['resume', 'Resume position', false],
+  ['audioTranscript', 'Transcript in audio artwork', false],
 ] as const;
 
 featureControls.innerHTML = features.map(([id, text, checked]) => `
@@ -70,6 +76,8 @@ const config = (): AVPlayerConfig => ({
     supplementalFiles: featureEnabled('supplementalFiles'),
   },
   controls: {
+    navigation: featureEnabled('navigation'),
+    autoAdvance: featureEnabled('autoAdvance'),
     captions: featureEnabled('captions'),
     playbackRate: featureEnabled('playbackRate'),
     pictureInPicture: featureEnabled('pictureInPicture'),
@@ -84,6 +92,10 @@ const config = (): AVPlayerConfig => ({
     autoScroll: true,
     download: true,
   },
+  audioArt: {
+    transcript: featureEnabled('audioTranscript'),
+    visualizer: audioVisualizer.value === 'none' ? false : audioVisualizer.value as AVAudioVisualizerMode,
+  },
   resume: {
     enabled: featureEnabled('resume'),
   },
@@ -91,11 +103,14 @@ const config = (): AVPlayerConfig => ({
 });
 
 const updateCode = () => {
+  const manifestAssignment = typeof player.manifest === 'string'
+    ? JSON.stringify(player.manifest)
+    : 'manifest';
   generatedCode.textContent = `import '@mango-iiif/av';
 
 const player = document.querySelector('mango-av-media');
 player.config = ${JSON.stringify(config(), null, 2)};
-player.manifest = manifest;
+player.manifest = ${manifestAssignment};
 
 /* Theme */
 player.style.setProperty('--mango-av-accent', '${getComputedStyle(player).getPropertyValue('--mango-av-accent').trim() || '#5b3fd6'}');`;
@@ -107,10 +122,32 @@ const update = () => {
 };
 
 preset.addEventListener('change', () => {
+  if (preset.value === 'custom') return;
   player.manifest = manifests[preset.value as keyof typeof manifests];
+  updateCode();
+});
+manifestForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const url = manifestUrl.value.trim();
+  if (!url) return;
+
+  loadManifest.disabled = true;
+  eventStatus.textContent = 'Loading manifest…';
+  try {
+    await player.load(url);
+    preset.value = 'custom';
+    eventStatus.textContent = 'Custom manifest loaded';
+    updateCode();
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    eventStatus.textContent = `Could not load manifest: ${message}`;
+  } finally {
+    loadManifest.disabled = false;
+  }
 });
 language.addEventListener('change', update);
 featureControls.addEventListener('change', update);
+audioVisualizer.addEventListener('change', update);
 
 const bindStyle = (selector: string, property: string, unit = '') => {
   document.querySelector<HTMLInputElement>(selector)?.addEventListener('input', (event) => {
