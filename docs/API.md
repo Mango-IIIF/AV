@@ -149,6 +149,8 @@ Renders and follows the active Canvas annotations. Selecting a timed annotation 
 | `--mango-av-panel-width` | `24rem` |
 | `--mango-av-player-aspect-ratio` | `16 / 9` |
 
+For audio Canvases, `audioArt.transcript` replaces the artwork title with the current timed cue. The preceding and following cues remain visible at reduced opacity and slide as playback crosses cue boundaries. `audioArt.visualizer` accepts `'pulse'`, `'waveform'`, `'spectrum'`, `true` (an alias for `'pulse'`), or `false`. Every mode inherits `--mango-av-accent`, fades out completely during silence or pause, and reduces or removes movement when `prefers-reduced-motion: reduce` is active.
+
 Media Chrome's own public variables remain available and can override the mapped defaults.
 
 ## `AVPlayerConfig`
@@ -156,6 +158,8 @@ Media Chrome's own public variables remain available and can override the mapped
 ```ts
 interface AVPlayerConfig {
   controls?: {
+    navigation?: boolean;
+    autoAdvance?: boolean;
     seek?: boolean;
     volume?: boolean;
     captions?: boolean;
@@ -181,6 +185,10 @@ interface AVPlayerConfig {
     showMetadata?: boolean;
     showSearchMarkers?: boolean;
   };
+  audioArt?: {
+    transcript?: boolean;
+    visualizer?: boolean | 'pulse' | 'waveform' | 'spectrum';
+  };
   resume?: {
     enabled?: boolean;
     maxItems?: number;
@@ -203,6 +211,8 @@ interface AVPlayerConfig {
   annotationAdapter?: AVAnnotationAdapter;
 }
 ```
+
+`controls.navigation` shows the Previous and Next buttons, while `controls.autoAdvance` shows the Auto-advance checkbox. Both default to `false`; hiding them does not disable `controller.previous()`, `controller.next()`, or programmatic auto-advance.
 
 `fetch` and `requestInit` configure manifest, external AnnotationPage, and transcript requests. `resolveRequest` runs immediately before a media URL is assigned; it can obtain an IIIF Auth token, sign a URL, route through a proxy, or enforce an application's access policy. The normalized Canvas exposes discovered auth services to the callback through `context.canvas.authServices`.
 

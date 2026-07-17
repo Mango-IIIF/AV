@@ -160,6 +160,8 @@ export interface AVManifest {
 }
 
 export interface AVControlsConfig {
+  navigation?: boolean;
+  autoAdvance?: boolean;
   seek?: boolean;
   volume?: boolean;
   captions?: boolean;
@@ -187,6 +189,13 @@ export interface AVTranscriptConfig {
   showMetadata?: boolean;
   showSearchMarkers?: boolean;
 }
+
+export interface AVAudioArtConfig {
+  transcript?: boolean;
+  visualizer?: boolean | AVAudioVisualizerMode;
+}
+
+export type AVAudioVisualizerMode = 'pulse' | 'waveform' | 'spectrum';
 
 export interface AVResumeConfig {
   enabled?: boolean;
@@ -246,6 +255,7 @@ export interface AVPlayerConfig {
   controls?: AVControlsConfig;
   panels?: AVPanelsConfig;
   transcript?: AVTranscriptConfig;
+  audioArt?: AVAudioArtConfig;
   resume?: AVResumeConfig;
   strings?: Partial<AVStrings>;
   preferredLanguages?: string[];
@@ -341,9 +351,11 @@ export const defaultStrings: AVStrings = {
 };
 
 export const defaultConfig: Required<
-  Pick<AVPlayerConfig, 'controls' | 'panels' | 'transcript' | 'resume' | 'strings' | 'preferredLanguages' | 'autoAdvance' | 'repeat' | 'activePanel' | 'crossorigin' | 'preload' | 'playbackRates'>
+  Pick<AVPlayerConfig, 'controls' | 'panels' | 'transcript' | 'audioArt' | 'resume' | 'strings' | 'preferredLanguages' | 'autoAdvance' | 'repeat' | 'activePanel' | 'crossorigin' | 'preload' | 'playbackRates'>
 > = {
   controls: {
+    navigation: false,
+    autoAdvance: false,
     seek: true,
     volume: true,
     captions: true,
@@ -368,6 +380,10 @@ export const defaultConfig: Required<
     showNotes: false,
     showMetadata: false,
     showSearchMarkers: true,
+  },
+  audioArt: {
+    transcript: false,
+    visualizer: false,
   },
   resume: {
     enabled: false,

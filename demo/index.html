@@ -26,8 +26,16 @@
               <option value="video">Video</option>
               <option value="hls">HLS video</option>
               <option value="audio">Audio</option>
+              <option value="custom" disabled>Custom manifest</option>
             </select>
           </label>
+          <form id="manifest-form" class="manifest-form">
+            <label for="manifest-url">Manifest URL</label>
+            <div class="manifest-input">
+              <input id="manifest-url" name="manifest-url" type="url" placeholder="https://example.org/manifest.json" required>
+              <button id="load-manifest" type="submit">Load</button>
+            </div>
+          </form>
           <label>Interface language
             <select id="language">
               <option value="en">English</option>
@@ -40,6 +48,14 @@
         <fieldset>
           <legend>Features</legend>
           <div id="feature-controls" class="checks"></div>
+          <label>Audio visualizer
+            <select id="audio-visualizer">
+              <option value="none">None</option>
+              <option value="pulse">Pulse</option>
+              <option value="waveform">Waveform</option>
+              <option value="spectrum">Spectrum</option>
+            </select>
+          </label>
         </fieldset>
 
         <fieldset>

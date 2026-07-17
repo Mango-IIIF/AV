@@ -56,6 +56,24 @@ describe('AVPlayerController', () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 
+  it('keeps audio transcript and visualizer options independent', () => {
+    const controller = new AVPlayerController({ audioArt: { transcript: true } });
+    expect(controller.config.audioArt).toEqual({ transcript: true, visualizer: false });
+    controller.configure({ audioArt: { visualizer: true } });
+    expect(controller.config.audioArt).toEqual({ transcript: true, visualizer: true });
+    controller.configure({ audioArt: { visualizer: 'spectrum' } });
+    expect(controller.config.audioArt).toEqual({ transcript: true, visualizer: 'spectrum' });
+  });
+
+  it('hides navigation and auto-advance controls by default', () => {
+    const controller = new AVPlayerController();
+    expect(controller.config.controls.navigation).toBe(false);
+    expect(controller.config.controls.autoAdvance).toBe(false);
+    controller.configure({ controls: { navigation: true, autoAdvance: true } });
+    expect(controller.config.controls.navigation).toBe(true);
+    expect(controller.config.controls.autoAdvance).toBe(true);
+  });
+
   it('resolves protected source URLs through the configured request hook', async () => {
     const controller = new AVPlayerController({ resolveRequest: (url) => `${url}?token=secret` });
     await controller.load(manifest);
@@ -82,6 +100,9 @@ describe('AVPlayerController', () => {
     controller.attachMedia(media);
     media.dispatchEvent(new Event('loadedmetadata'));
     expect(media.currentTime).toBe(2);
+    media.currentTime = 8;
+    media.dispatchEvent(new Event('seeking'));
+    expect(controller.state.currentTime).toBe(16);
     controller.seekTo(15);
     expect(media.currentTime).toBe(7);
     media.dispatchEvent(new Event('timeupdate'));

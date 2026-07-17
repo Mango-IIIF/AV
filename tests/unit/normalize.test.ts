@@ -44,6 +44,12 @@ describe('normalizeManifest', () => {
             motivation: 'supplementing',
             body: { type: 'TextualBody', value: 'Hello world', purpose: ['supplementing'] },
             target: 'https://example.org/canvas/1#t=5,8',
+          }, {
+            id: 'https://example.org/transcript/2',
+            type: 'Annotation',
+            motivation: 'supplementing',
+            body: { type: 'TextualBody', value: 'Next cue', purpose: ['supplementing'] },
+            target: 'https://example.org/canvas/1#t=8,12',
           }],
         }],
       }],
@@ -65,6 +71,8 @@ describe('normalizeManifest', () => {
       canvasTarget: { start: 2, end: 50 },
     });
     expect(manifest.canvases[0]?.transcripts[0]?.cues?.[0]).toMatchObject({ text: 'Hello world', start: 5, end: 8 });
+    expect(manifest.canvases[0]?.transcripts).toHaveLength(1);
+    expect(manifest.canvases[0]?.transcripts[0]?.cues?.[1]).toMatchObject({ text: 'Next cue', start: 8, end: 12 });
     expect(manifest.chapters[0]).toMatchObject({ label: 'Introduction', canvasId: 'https://example.org/canvas/1', time: { start: 2, end: 12 } });
     expect(manifest.rendering[0]?.label).toBe('Programme');
   });

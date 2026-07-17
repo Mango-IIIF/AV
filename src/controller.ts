@@ -190,7 +190,10 @@ export class AVPlayerController extends EventTarget {
         this.#emitState();
       },
       seeking: () => {
-        this.#emit('av-seek', { canvasId: this.canvas?.id ?? '', from: this.#lastTime, to: this.#toCanvasTime(media.currentTime) });
+        const time = this.#toCanvasTime(media.currentTime);
+        this.#state.currentTime = time;
+        this.#emit('av-seek', { canvasId: this.canvas?.id ?? '', from: this.#lastTime, to: time });
+        this.#emitState();
       },
       volumechange: () => {
         this.#state.volume = media.volume;
