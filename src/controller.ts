@@ -267,13 +267,19 @@ export class AVPlayerController extends EventTarget {
       : canvases.findIndex((canvas) => canvas.id === withoutFragment(indexOrId));
     if (index < 0 || index >= canvases.length) return undefined;
     const wasPlaying = options.autoplay ?? this.#state.status === 'playing';
+    const canvas = canvases[index];
+    const time = options.time ?? canvas?.sources[0]?.canvasTarget?.start ?? 0;
+    if (index === this.#state.canvasIndex) {
+      this.seekTo(time);
+      if (wasPlaying) queueMicrotask(() => void this.play());
+      return canvas;
+    }
     this.#state.canvasIndex = index;
     this.#state.sourceIndex = 0;
     this.#timelineScale = 1;
-    this.#state.currentTime = options.time ?? canvases[index]?.sources[0]?.canvasTarget?.start ?? 0;
-    this.#state.duration = canvases[index]?.duration ?? 0;
+    this.#state.currentTime = time;
+    this.#state.duration = canvas?.duration ?? 0;
     this.#pendingTime = this.#state.currentTime;
-    const canvas = canvases[index];
     if (canvas) this.#emit('av-canvaschange', { canvas, canvasIndex: index });
     this.#emitState();
     if (wasPlaying) queueMicrotask(() => void this.play());
