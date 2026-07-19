@@ -42,6 +42,23 @@ describe('AVPlayerController', () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 
+  it('seeks without emitting a Canvas change when selecting the active Canvas', async () => {
+    const controller = new AVPlayerController();
+    const listener = vi.fn();
+    controller.addEventListener('av-canvaschange', listener);
+    await controller.load(manifest);
+    listener.mockClear();
+    const seekTo = vi.spyOn(controller, 'seekTo');
+
+    const canvas = controller.selectCanvas('https://example.org/canvas/1', { time: 6 });
+
+    expect(canvas?.id).toBe('https://example.org/canvas/1');
+    expect(seekTo).toHaveBeenCalledOnce();
+    expect(seekTo).toHaveBeenCalledWith(6);
+    expect(controller.state.currentTime).toBe(6);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('merges partial string overrides and emits a configuration event', () => {
     const controller = new AVPlayerController({ strings: { chapters: 'Penodau' } });
     const listener = vi.fn();

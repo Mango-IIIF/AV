@@ -1,6 +1,6 @@
 {
   "name": "@mango-iiif/av",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "Framework-free IIIF audio and video components powered by Media Chrome.",
   "license": "MIT",
   "type": "module",
