@@ -396,7 +396,7 @@ export const defaultConfig: Required<
   autoAdvance: false,
   repeat: false,
   activePanel: 'chapters',
-  crossorigin: 'anonymous',
+  crossorigin: '',
   preload: 'metadata',
   playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
 };

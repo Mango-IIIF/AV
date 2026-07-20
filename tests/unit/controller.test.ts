@@ -91,6 +91,17 @@ describe('AVPlayerController', () => {
     expect(controller.config.controls.autoAdvance).toBe(true);
   });
 
+  it('uses ordinary no-CORS media loading unless explicitly configured', () => {
+    const controller = new AVPlayerController();
+    expect(controller.config.crossorigin).toBe('');
+
+    controller.configure({ crossorigin: 'anonymous' });
+    expect(controller.config.crossorigin).toBe('anonymous');
+
+    controller.configure({ crossorigin: 'use-credentials' });
+    expect(controller.config.crossorigin).toBe('use-credentials');
+  });
+
   it('resolves protected source URLs through the configured request hook', async () => {
     const controller = new AVPlayerController({ resolveRequest: (url) => `${url}?token=secret` });
     await controller.load(manifest);

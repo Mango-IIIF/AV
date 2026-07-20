@@ -98,9 +98,27 @@ export const isHls = (src: string, format?: string): boolean =>
   format === 'application/x-mpegURL';
 
 export const mediaKind = (type?: string, format?: string, src = ''): 'audio' | 'video' | undefined => {
-  const haystack = `${type ?? ''} ${format ?? ''} ${src}`.toLowerCase();
-  if (/\baudio\b|\.mp3(?:$|[?#])|\.m4a(?:$|[?#])|\.wav(?:$|[?#])|\.aac(?:$|[?#])/.test(haystack)) return 'audio';
-  if (/\bvideo\b|\.mp4(?:$|[?#])|\.webm(?:$|[?#])|\.m3u8(?:$|[?#])|mpegurl/.test(haystack)) return 'video';
+  const normalizedType = type?.toLowerCase().trim();
+  const normalizedFormat = format?.toLowerCase().split(';', 1)[0]?.trim();
+  const typeName = normalizedType?.split(/[:/#]/).pop();
+
+  // IIIF type and MIME metadata are authoritative. Sound and MovingImage are
+  // the Presentation 2/DCMI aliases for Audio and Video resources.
+  if (typeName === 'audio' || typeName === 'sound' || normalizedFormat?.startsWith('audio/')) return 'audio';
+  if (
+    typeName === 'video' ||
+    typeName === 'movingimage' ||
+    normalizedFormat?.startsWith('video/') ||
+    normalizedFormat === 'application/vnd.apple.mpegurl' ||
+    normalizedFormat === 'application/x-mpegurl'
+  ) return 'video';
+  if (normalizedType || normalizedFormat) return undefined;
+
+  // With no metadata, inspect only the resource path's extension. Directory
+  // names such as `/video/poster.png` must not determine the media kind.
+  const pathname = src.toLowerCase().split(/[?#]/, 1)[0] ?? '';
+  if (/\.(?:mp3|m4a|wav|aac)$/.test(pathname)) return 'audio';
+  if (/\.(?:mp4|webm|m3u8)$/.test(pathname)) return 'video';
   return undefined;
 };
 

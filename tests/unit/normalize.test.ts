@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { normalizeManifest } from '../../src/iiif/normalize';
+
+const cookbookFixture = async (name: string): Promise<Record<string, unknown>> =>
+  JSON.parse(await readFile(new URL(`tests/fixtures/cookbook/${name}`, `file://${process.cwd()}/`), 'utf8')) as Record<string, unknown>;
 
 describe('normalizeManifest', () => {
   it('normalizes Presentation 3 AV resources, ranges, transcripts, and downloads', async () => {
@@ -160,5 +164,44 @@ describe('normalizeManifest', () => {
     expect(manifest.canvases[0]?.label).toBe('Adran 1');
     expect(manifest.canvases[0]?.sources[0]?.label).toBe('Awtomatig');
     expect(manifest.chapters[0]?.label).toBe('Pennod 1');
+  });
+
+  it('does not classify Cookbook 0004\'s PNG in a video directory as AV', async () => {
+    const fixture = await cookbookFixture('0004-canvas-size.json');
+    const manifest = await normalizeManifest(fixture);
+
+    expect(manifest.canvases[0]?.sources).toEqual([]);
+    expect(JSON.stringify(fixture)).toContain('act1-thumbnail.png');
+  });
+
+  it('normalizes Cookbook 0013 video and placeholder Canvas poster', async () => {
+    const manifest = await normalizeManifest(await cookbookFixture('0013-placeholder-canvas.json'));
+
+    expect(manifest.canvases[0]?.sources[0]).toMatchObject({ kind: 'video', format: 'video/mp4' });
+    expect(manifest.canvases[0]?.poster).toBe('https://fixtures.iiif.io/video/indiana/donizetti-elixir/act1-thumbnail.png');
+  });
+
+  it('preserves and exposes Cookbook 0017\'s text rendering as a transcript', async () => {
+    const manifest = await normalizeManifest(await cookbookFixture('0017-transcription-av.json'));
+    const canvas = manifest.canvases[0];
+
+    expect(canvas?.sources[0]).toMatchObject({ kind: 'video', format: 'video/mp4' });
+    expect(canvas?.rendering[0]).toMatchObject({ format: 'text/plain' });
+    expect(canvas?.transcripts[0]).toMatchObject({
+      src: 'https://fixtures.iiif.io/video/indiana/volleyball/volleyball.txt',
+      format: 'text/plain',
+      label: 'Transcript',
+    });
+  });
+
+  it('normalizes Cookbook 0026 video and nested temporal chapters', async () => {
+    const manifest = await normalizeManifest(await cookbookFixture('0026-toc-opera.json'));
+    const firstTemporalChapter = manifest.chapters[0]?.children[0]?.children[0];
+
+    expect(manifest.canvases[0]?.sources[0]).toMatchObject({ kind: 'video', format: 'video/mp4' });
+    expect(firstTemporalChapter).toMatchObject({
+      canvasId: 'https://iiif.io/api/cookbook/recipe/0026-toc-opera/canvas/1',
+      time: { start: 0, end: 302.05 },
+    });
   });
 });

@@ -214,6 +214,8 @@ interface AVPlayerConfig {
 
 `controls.navigation` shows the Previous and Next buttons, while `controls.autoAdvance` shows the Auto-advance checkbox. Both default to `false`; hiding them does not disable `controller.previous()`, `controller.next()`, or programmatic auto-advance.
 
+`crossorigin` defaults to `''`, so the player does not add a `crossorigin` attribute and ordinary cross-origin media can load without a CORS response. Set it explicitly to `'anonymous'` or `'use-credentials'` when text tracks, canvas frame access, or another feature requires CORS; the media server must then return matching CORS headers.
+
 `fetch` and `requestInit` configure manifest, external AnnotationPage, and transcript requests. `resolveRequest` runs immediately before a media URL is assigned; it can obtain an IIIF Auth token, sign a URL, route through a proxy, or enforce an application's access policy. The normalized Canvas exposes discovered auth services to the callback through `context.canvas.authServices`.
 
 `annotationAdapter` connects create/update/delete to the host's persistence API:

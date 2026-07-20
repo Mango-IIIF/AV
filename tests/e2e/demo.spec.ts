@@ -1,4 +1,25 @@
 import { expect, test } from '@playwright/test';
+import { createServer } from 'node:http';
+
+const regressionMp4 = Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAN0bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAMgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAp90cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAMgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAADIAAAEAAABAAAAAAIXbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAyAAAACgBVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABwm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAYJzdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MS4xOS4xMDEgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAF2dkAAqs2V7ARAAAAwAEAAADAMg8SJZYAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAHZIAAAAAAAAABhzdHRzAAAAAAAAAAEAAAAFAAACAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAOGN0dHMAAAAAAAAABQAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAUAAAABAAAAKHN0c3oAAAAAAAAAAAAAAAUAAALFAAAADAAAAAwAAAAMAAAADAAAABRzdGNvAAAAAAAAAAEAAAOkAAAAYXVkdGEAAABZbWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAsaWxzdAAAACSpdG9vAAAAHGRhdGEAAAABAAAAAExhdmY2MS43LjEwMAAAAAhmcmVlAAAC/W1kYXQAAAKuBgX//6rcRem95tlIt5Ys2CDZI+7veDI2NCAtIGNvcmUgMTY0IHIzMTA4IDMxZTE5ZjkgLSBILjI2NC9NUEVHLTQgQVZDIGNvZGVjIC0gQ29weWxlZnQgMjAwMy0yMDIzIC0gaHR0cDovL3d3dy52aWRlb2xhbi5vcmcveDI2NC5odG1sIC0gb3B0aW9uczogY2FiYWM9MSByZWY9MyBkZWJsb2NrPTE6MDowIGFuYWx5c2U9MHgzOjB4MTEzIG1lPWhleCBzdWJtZT03IHBzeT0xIHBzeV9yZD0xLjAwOjAuMDAgbWl4ZWRfcmVmPTEgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0xIDh4OGRjdD0xIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PS0yIHRocmVhZHM9MSBsb29rYWhlYWRfdGhyZWFkcz0xIHNsaWNlZF90aHJlYWRzPTAgbnI9MCBkZWNpbWF0ZT0xIGludGVybGFjZWQ9MCBibHVyYXlfY29tcGF0PTAgY29uc3RyYWluZWRfaW50cmE9MCBiZnJhbWVzPTMgYl9weXJhbWlkPTIgYl9hZGFwdD0xIGJfYmlhcz0wIGRpcmVjdD0xIHdlaWdodGI9MSBvcGVuX2dvcD0wIHdlaWdodHA9MiBrZXlpbnQ9MjUwIGtleWludF9taW49MjUgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAPZYiEADP//vbsvgU2FMjBAAAACEGaJGxCv/7AAAAACEGeQniF/8GBAAAACAGeYXRCv8SAAAAACAGeY2pCv8SB', 'base64');
+
+const playbackManifest = (src: string) => ({
+  id: 'https://example.org/playback-regression',
+  type: 'Manifest',
+  items: [{
+    id: 'https://example.org/playback-regression/canvas',
+    type: 'Canvas',
+    items: [{
+      type: 'AnnotationPage',
+      items: [{
+        type: 'Annotation',
+        motivation: 'painting',
+        body: { id: src, type: 'Video', format: 'video/mp4' },
+        target: 'https://example.org/playback-regression/canvas',
+      }],
+    }],
+  }],
+});
 
 test('configuration builder switches media presets and updates generated config', async ({ page }) => {
   await page.goto('/');
@@ -21,6 +42,68 @@ test('configuration builder switches media presets and updates generated config'
   await expect(viewer.getByLabel('Auto-advance', { exact: true })).toBeVisible();
   await page.getByLabel('Chapters').uncheck();
   await expect(page.locator('#generated-code')).toContainText('"chapters": false');
+});
+
+test('redirected cross-origin range media loads without implicit CORS mode', async ({ page }) => {
+  const mediaServer = createServer((request, response) => {
+    const start = Number(request.headers.range?.match(/^bytes=(\d+)-/)?.[1] ?? 0);
+    const body = regressionMp4.subarray(start);
+    response.writeHead(request.headers.range ? 206 : 200, {
+      'Accept-Ranges': 'bytes',
+      'Content-Length': body.length,
+      'Content-Range': `bytes ${start}-${regressionMp4.length - 1}/${regressionMp4.length}`,
+      'Content-Type': 'video/mp4',
+      ...(request.url === '/cors.mp4' ? { 'Access-Control-Allow-Origin': '*' } : {}),
+    });
+    response.end(body);
+  });
+  await new Promise<void>((resolve) => mediaServer.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const address = mediaServer.address();
+    if (!address || typeof address === 'string') throw new Error('Unable to start media test server');
+    const redirectUrl = 'http://127.0.0.1:4173/playback-redirect.mp4';
+    await page.route(redirectUrl, (route) => route.fulfill({
+      status: 302,
+      headers: { location: `http://127.0.0.1:${address.port}/no-cors.mp4` },
+    }));
+    await page.goto('/');
+
+    const defaultResult = await page.evaluate(async (manifest) => {
+      const player = document.createElement('mango-av-player') as any;
+      document.body.append(player);
+      await player.load(manifest);
+      const video = player.shadowRoot.querySelector('video') as HTMLVideoElement;
+      if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+        await new Promise<void>((resolve, reject) => {
+          video.addEventListener('loadedmetadata', () => resolve(), { once: true });
+          video.addEventListener('error', () => reject(video.error), { once: true });
+        });
+      }
+      return { crossorigin: video.getAttribute('crossorigin'), error: video.error?.code ?? null };
+    }, playbackManifest(redirectUrl));
+
+    expect(defaultResult).toEqual({ crossorigin: null, error: null });
+
+    const corsResult = await page.evaluate(async ({ manifest }) => {
+      const player = document.createElement('mango-av-player') as any;
+      player.config = { crossorigin: 'anonymous' };
+      document.body.append(player);
+      await player.load(manifest);
+      const video = player.shadowRoot.querySelector('video') as HTMLVideoElement;
+      if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+        await new Promise<void>((resolve, reject) => {
+          video.addEventListener('loadedmetadata', () => resolve(), { once: true });
+          video.addEventListener('error', () => reject(video.error), { once: true });
+        });
+      }
+      return { crossorigin: video.getAttribute('crossorigin'), error: video.error?.code ?? null };
+    }, { manifest: playbackManifest(`http://127.0.0.1:${address.port}/cors.mp4`) });
+
+    expect(corsResult).toEqual({ crossorigin: 'anonymous', error: null });
+  } finally {
+    await new Promise<void>((resolve, reject) => mediaServer.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test('audio artwork can show a moving transcript independently from the volume visualizer', async ({ page }) => {

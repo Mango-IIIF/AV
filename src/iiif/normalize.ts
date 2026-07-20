@@ -70,6 +70,26 @@ const downloads = (value: unknown, languages: string[], ui: AVStrings): Download
     return [result];
   });
 
+const renderingTranscripts = (value: unknown, languages: string[], ui: AVStrings): TranscriptResource[] =>
+  asArray(value).flatMap((item, index) => {
+    const object = asObject(item);
+    const id = readId(item);
+    if (!object || !id) return [];
+    const format = readFormat(object)?.toLowerCase().split(';', 1)[0]?.trim();
+    const pathname = id.toLowerCase().split(/[?#]/, 1)[0] ?? '';
+    if (!format?.startsWith('text/') && !/\.(?:txt|vtt|srt)$/.test(pathname)) return [];
+    const transcript: TranscriptResource = {
+      id: `${id}#transcript`,
+      src: id,
+      label: label(object.label, languages, formatString(ui.transcriptNumber, { number: index + 1 })),
+      machineGenerated: false,
+    };
+    if (format) transcript.format = format;
+    const language = typeof object.language === 'string' ? object.language : undefined;
+    if (language) transcript.language = language;
+    return [transcript];
+  });
+
 const services = (value: unknown, languages: string[]): AuthService[] =>
   asArray(value).flatMap((item) => {
     const object = asObject(item);
@@ -368,7 +388,7 @@ const canvasFrom = (
     behavior: strings(canvas.behavior ?? canvas.viewingHint),
     sources,
     tracks: supplementing.tracks,
-    transcripts: supplementing.transcripts,
+    transcripts: [...supplementing.transcripts, ...renderingTranscripts(canvas.rendering, languages, ui)],
     annotations: supplementing.annotations,
     rendering: downloads(canvas.rendering, languages, ui),
     metadata: metadata(canvas.metadata, languages, ui),
