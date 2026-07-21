@@ -1,8 +1,8 @@
 import type { AVAudioVisualizerMode, TranscriptCue } from '../types';
 import { escapeHtml } from '../utils';
 
-export const audioArtTranscriptHtml = (label: string, cues: TranscriptCue[], enabled: boolean): string => {
-  if (!enabled || cues.length === 0) return `<span class="audio-art-title">${escapeHtml(label)}</span>`;
+export const audioArtTranscriptHtml = (label: string, title: string, cues: TranscriptCue[], enabled: boolean): string => {
+  if (!enabled || cues.length === 0) return title ? `<span class="audio-art-title">${escapeHtml(title)}</span>` : '';
   return `<div class="audio-art-transcript" aria-live="polite" aria-label="${escapeHtml(label)}">
     ${cues.map((cue) => `<div class="audio-art-cue" data-audio-cue data-start="${cue.start ?? ''}" data-end="${cue.end ?? cue.start ?? ''}">${cue.speaker ? `<span class="audio-art-speaker">${escapeHtml(cue.speaker)}</span>` : ''}<span>${escapeHtml(cue.text)}</span></div>`).join('')}
   </div>`;
@@ -14,10 +14,11 @@ export const resolveAudioVisualizerMode = (
 
 export const audioArtContentHtml = (
   label: string,
+  title: string,
   cues: TranscriptCue[],
   transcriptEnabled: boolean,
   visualizerMode?: AVAudioVisualizerMode,
-): string => `<div class="audio-art-text">${audioArtTranscriptHtml(label, cues, transcriptEnabled)}</div>${visualizerMode === 'waveform' || visualizerMode === 'spectrum' ? `<canvas class="audio-art-visualizer-canvas" aria-hidden="true"></canvas>` : ''}`;
+): string => `<div class="audio-art-text">${audioArtTranscriptHtml(label, title, cues, transcriptEnabled)}</div>${visualizerMode === 'waveform' || visualizerMode === 'spectrum' ? `<canvas class="audio-art-visualizer-canvas" aria-hidden="true"></canvas>` : ''}`;
 
 export const syncAudioArtTranscript = (root: ParentNode, time: number, instant = false): void => {
   const cues = [...root.querySelectorAll<HTMLElement>('[data-audio-cue]')];
@@ -62,6 +63,8 @@ export class AudioArtVisualizer {
   #analyzer: AnalyserNode | undefined;
   #frame = 0;
   #level = 0;
+  #media: HTMLMediaElement | undefined;
+  #resume: (() => void) | undefined;
 
   connect(media: HTMLMediaElement, art: HTMLElement, mode: AVAudioVisualizerMode): void {
     this.disconnect();
@@ -71,15 +74,16 @@ export class AudioArtVisualizer {
     try {
       if (token !== this.#token || !media.isConnected || !art.isConnected) return;
       const context = new AudioContext();
+      this.#context = context;
       const source = context.createMediaElementSource(media);
+      this.#source = source;
       const analyzer = context.createAnalyser();
+      this.#analyzer = analyzer;
       analyzer.fftSize = 512;
       analyzer.smoothingTimeConstant = .95;
       source.connect(context.destination);
       source.connect(analyzer);
-      this.#context = context;
-      this.#source = source;
-      this.#analyzer = analyzer;
+      this.#media = media;
       const samples = new Uint8Array(analyzer.fftSize);
       const frequencies = new Uint8Array(analyzer.frequencyBinCount);
       const canvas = art.querySelector<HTMLCanvasElement>('.audio-art-visualizer-canvas');
@@ -166,6 +170,7 @@ export class AudioArtVisualizer {
       };
       draw();
       const resume = () => void context.resume();
+      this.#resume = resume;
       media.addEventListener('play', resume, { once: true });
       if (!media.paused) resume();
     } catch {
@@ -178,10 +183,14 @@ export class AudioArtVisualizer {
     if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(this.#frame);
     this.#frame = 0;
     this.#level = 0;
+    if (this.#media && this.#resume) this.#media.removeEventListener('play', this.#resume);
     try { this.#source?.disconnect(); } catch { /* Already disconnected. */ }
+    try { this.#analyzer?.disconnect(); } catch { /* Already disconnected. */ }
     if (this.#context && this.#context.state !== 'closed') void this.#context.close();
     this.#analyzer = undefined;
     this.#source = undefined;
     this.#context = undefined;
+    this.#media = undefined;
+    this.#resume = undefined;
   }
 }

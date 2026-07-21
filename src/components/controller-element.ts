@@ -17,6 +17,7 @@ export const controllerEventTypes: Array<keyof AVPlayerEventMap> = [
   'av-annotationschange',
   'av-configchange',
   'av-statechange',
+  'av-visualizerfallback',
 ];
 
 export abstract class AVControllerElement extends HTMLElementBase {

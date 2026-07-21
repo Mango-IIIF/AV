@@ -75,11 +75,11 @@ describe('AVPlayerController', () => {
 
   it('keeps audio transcript and visualizer options independent', () => {
     const controller = new AVPlayerController({ audioArt: { transcript: true } });
-    expect(controller.config.audioArt).toEqual({ transcript: true, visualizer: false });
+    expect(controller.config.audioArt).toEqual({ title: '', transcript: true, visualizer: false });
     controller.configure({ audioArt: { visualizer: true } });
-    expect(controller.config.audioArt).toEqual({ transcript: true, visualizer: true });
+    expect(controller.config.audioArt).toEqual({ title: '', transcript: true, visualizer: true });
     controller.configure({ audioArt: { visualizer: 'spectrum' } });
-    expect(controller.config.audioArt).toEqual({ transcript: true, visualizer: 'spectrum' });
+    expect(controller.config.audioArt).toEqual({ title: '', transcript: true, visualizer: 'spectrum' });
   });
 
   it('hides navigation and auto-advance controls by default', () => {

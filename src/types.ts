@@ -191,6 +191,7 @@ export interface AVTranscriptConfig {
 }
 
 export interface AVAudioArtConfig {
+  title?: string;
   transcript?: boolean;
   visualizer?: boolean | AVAudioVisualizerMode;
 }
@@ -302,6 +303,7 @@ export interface AVPlayerEventMap {
   'av-annotationschange': { canvasId: string; annotations: AVAnnotation[] };
   'av-configchange': { config: Readonly<AVPlayerConfig> };
   'av-statechange': AVPlayerState;
+  'av-visualizerfallback': { canvasId: string; sourceUrl: string; reason: 'cors' };
 }
 
 export const defaultStrings: AVStrings = {
@@ -382,6 +384,7 @@ export const defaultConfig: Required<
     showSearchMarkers: true,
   },
   audioArt: {
+    title: '',
     transcript: false,
     visualizer: false,
   },

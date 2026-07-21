@@ -16,6 +16,7 @@ import type {
   TranscriptCue,
 } from '../types';
 import { escapeHtml, formatString, formatTime, resolveStrings } from '../utils';
+import { applyMediaSource, resolveAudioMediaPolicy } from './media-policy';
 
 const HTMLElementBase = (globalThis.HTMLElement ?? class {}) as typeof HTMLElement;
 
@@ -39,6 +40,7 @@ const eventTypes: Array<keyof AVPlayerEventMap> = [
   'av-annotationschange',
   'av-configchange',
   'av-statechange',
+  'av-visualizerfallback',
 ];
 
 const styles = `
@@ -174,6 +176,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
   #loadingToken = 0;
   #resolvedSourceUrl: string | undefined;
   #sourceToken = 0;
+  #fallbackSourceUrl: string | undefined;
   #visualizer = new AudioArtVisualizer();
 
   constructor() {
@@ -184,7 +187,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
       this.player.addEventListener(type, ((event: CustomEvent) => {
         if (type === 'av-ready') {
           if (this.player.source?.isHls) void ensureHlsElement();
-          this.#resolvedSourceUrl = undefined;
+          this.#resetSourceLoad();
           this.#resumeTime = this.player.getSavedPosition();
           this.#activePanel = this.player.config.activePanel;
           this.#render();
@@ -192,15 +195,19 @@ export class MangoAVMediaElement extends HTMLElementBase {
           void this.#loadActiveTranscript();
         } else if (type === 'av-canvaschange' || type === 'av-sourcechange') {
           if (this.player.source?.isHls) void ensureHlsElement();
-          this.#resolvedSourceUrl = undefined;
+          this.#resetSourceLoad();
           this.#transcriptCues = [];
           this.#transcriptIndex = 0;
           this.#render();
           void this.#resolveSource();
           void this.#loadActiveTranscript();
         } else if (type === 'av-configchange') {
+          this.#resetSourceLoad();
           this.#activePanel = this.player.config.activePanel;
-          void ensureMediaChrome(this.player.config.preferredLanguages[0]).then(() => this.#render());
+          void ensureMediaChrome(this.player.config.preferredLanguages[0]).then(() => {
+            this.#render();
+            void this.#resolveSource();
+          });
         } else if (type === 'av-error') {
           this.#render();
         } else if (type === 'av-annotationschange') {
@@ -318,12 +325,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
     </div>`;
     this.#bindInteractions();
     const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-    if (media) {
-      this.player.attachMedia(media);
-      const art = this.#root.querySelector<HTMLElement>('.audio-art.visualizer');
-      const visualizerMode = resolveAudioVisualizerMode(this.player.config.audioArt.visualizer);
-      if (art && media instanceof HTMLAudioElement && visualizerMode) this.#visualizer.connect(media, art, visualizerMode);
-    }
+    if (media && this.#resolvedSourceUrl) this.#activateMedia(media, this.#resolvedSourceUrl);
     this.#syncTimedContent();
   }
 
@@ -350,7 +352,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
         <section class="player-column" aria-label="${escapeHtml(ui.mediaPlayer)}">
           <slot name="before-player"></slot>
           <media-controller ${kind === 'audio' ? 'audio' : ''} ${this.#mediaChromeLanguage()}>
-            ${kind === 'audio' ? `<div class="audio-art ${visualizerMode ? `visualizer visualizer--${visualizerMode}` : ''}">${audioArtContentHtml(canvas.label, this.#transcriptCues, Boolean(this.player.config.audioArt.transcript), visualizerMode)}</div>` : ''}
+            ${kind === 'audio' ? `<div class="audio-art ${visualizerMode ? `visualizer visualizer--${visualizerMode}` : ''}">${audioArtContentHtml(canvas.label, this.player.config.audioArt.title ?? '', this.#transcriptCues, Boolean(this.player.config.audioArt.transcript), visualizerMode)}</div>` : ''}
             ${source ? this.#mediaHtml(canvas, source.kind) : `<div class="audio-art"><span>${escapeHtml(ui.noPlayableMedia)}</span></div>`}
             <slot name="player-overlay"></slot>
             <slot name="controls">
@@ -394,10 +396,8 @@ export class MangoAVMediaElement extends HTMLElementBase {
     const source = this.player.source;
     if (!source) return '';
     const tag = source.isHls ? 'hls-video' : kind;
-    const sourceUrl = this.#resolvedSourceUrl ?? (this.player.config.resolveRequest ? '' : source.src);
     const attributes = [
       'slot="media"',
-      sourceUrl ? `src="${escapeHtml(sourceUrl)}"` : '',
       `preload="${this.player.config.preload}"`,
       this.player.config.crossorigin ? `crossorigin="${this.player.config.crossorigin}"` : '',
       kind === 'video' && canvas.poster ? `poster="${escapeHtml(canvas.poster)}"` : '',
@@ -570,18 +570,76 @@ export class MangoAVMediaElement extends HTMLElementBase {
   }
 
   async #resolveSource(): Promise<void> {
-    if (!this.player.config.resolveRequest) return;
     const token = ++this.#sourceToken;
     try {
       const sourceUrl = await this.player.resolvedSourceUrl();
       if (token !== this.#sourceToken || !sourceUrl) return;
       this.#resolvedSourceUrl = sourceUrl;
       const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-      if (media) media.setAttribute('src', sourceUrl);
+      if (media) this.#activateMedia(media, sourceUrl);
     } catch (cause) {
       const error = cause instanceof Error ? cause : new Error(String(cause));
       this.dispatchEvent(new CustomEvent('av-error', { detail: { error }, bubbles: true, composed: true }));
     }
+  }
+
+  #activateMedia(media: HTMLMediaElement, sourceUrl: string): void {
+    const mode = resolveAudioVisualizerMode(this.player.config.audioArt.visualizer);
+    const policy = resolveAudioMediaPolicy(
+      sourceUrl,
+      this.player.config.crossorigin,
+      this.player.crossoriginExplicit,
+      media instanceof HTMLAudioElement ? mode : undefined,
+      this.#fallbackSourceUrl === sourceUrl,
+    );
+    if (media instanceof HTMLAudioElement && policy.implicitCors) {
+      media.addEventListener('error', (event) => {
+        if (this.#fallbackSourceUrl === sourceUrl) return;
+        event.stopImmediatePropagation();
+        this.#fallbackToOrdinaryAudio(media, sourceUrl);
+      }, { once: true });
+    }
+    if (media instanceof HTMLAudioElement && mode && policy.visualize) {
+      const connect = () => {
+        const art = this.#root.querySelector<HTMLElement>('.audio-art.visualizer');
+        if (art && media.isConnected) this.#visualizer.connect(media, art, mode);
+      };
+      media.addEventListener('loadedmetadata', connect, { once: true });
+      if (media.readyState >= HTMLMediaElement.HAVE_METADATA) queueMicrotask(connect);
+    }
+    this.player.attachMedia(media);
+    applyMediaSource(media, sourceUrl, policy.crossOrigin);
+  }
+
+  #fallbackToOrdinaryAudio(failed: HTMLAudioElement, sourceUrl: string): void {
+    this.#fallbackSourceUrl = sourceUrl;
+    this.#visualizer.disconnect();
+    const requestedTime = this.player.state.currentTime;
+    const shouldPlay = this.player.state.status === 'playing' || !failed.paused;
+    const replacement = failed.cloneNode(true) as HTMLAudioElement;
+    replacement.removeAttribute('src');
+    replacement.removeAttribute('crossorigin');
+    replacement.volume = failed.volume;
+    replacement.muted = failed.muted;
+    replacement.playbackRate = failed.playbackRate;
+    const hadFocus = this.#root.activeElement === failed;
+    failed.replaceWith(replacement);
+    this.player.attachMedia(replacement);
+    this.player.seekTo(requestedTime);
+    if (hadFocus) replacement.focus();
+    this.#root.querySelector<HTMLElement>('.audio-art')?.classList.remove('visualizer');
+    applyMediaSource(replacement, sourceUrl);
+    if (shouldPlay) replacement.addEventListener('loadedmetadata', () => void replacement.play().catch(() => undefined), { once: true });
+    this.player.dispatchEvent(new CustomEvent('av-visualizerfallback', {
+      detail: { canvasId: this.player.canvas?.id ?? '', sourceUrl, reason: 'cors' },
+    }));
+  }
+
+  #resetSourceLoad(): void {
+    this.#sourceToken += 1;
+    this.#resolvedSourceUrl = undefined;
+    this.#fallbackSourceUrl = undefined;
+    this.#visualizer.disconnect();
   }
 
   #syncTimedContent(time = this.player.state.currentTime, instant = false): void {
@@ -605,7 +663,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
     const canvas = this.player.canvas;
     if (!art || !canvas || this.player.source?.kind !== 'audio') return;
     const text = art.querySelector<HTMLElement>('.audio-art-text');
-    if (text) text.innerHTML = audioArtTranscriptHtml(canvas.label, this.#transcriptCues, Boolean(this.player.config.audioArt.transcript));
+    if (text) text.innerHTML = audioArtTranscriptHtml(canvas.label, this.player.config.audioArt.title ?? '', this.#transcriptCues, Boolean(this.player.config.audioArt.transcript));
     syncAudioArtTranscript(art, this.player.state.currentTime);
   }
 }

@@ -35,6 +35,7 @@ media.config = {
     fullscreen: true,
   },
   audioArt: {
+    title: 'Listen to this recording',
     transcript: true,
     visualizer: 'waveform',
   },

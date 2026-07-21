@@ -41,9 +41,11 @@ export class AVPlayerController extends EventTarget {
   #timelineScale = 1;
   #pendingTime: number | undefined;
   #boundListeners = new Map<string, EventListener>();
+  #crossoriginExplicit: boolean;
 
   constructor(config: AVPlayerConfig = {}) {
     super();
+    this.#crossoriginExplicit = Object.hasOwn(config, 'crossorigin');
     this.#config = mergeConfig(defaultConfig, config) as ResolvedConfig;
     this.#state.autoAdvance = this.#config.autoAdvance;
     this.#state.repeat = this.#config.repeat;
@@ -73,6 +75,11 @@ export class AVPlayerController extends EventTarget {
     return this.#media;
   }
 
+  /** Whether the host explicitly selected the media element CORS policy. */
+  get crossoriginExplicit(): boolean {
+    return this.#crossoriginExplicit;
+  }
+
   on<K extends keyof AVPlayerEventMap>(
     type: K,
     listener: (event: CustomEvent<AVPlayerEventMap[K]>) => void,
@@ -83,6 +90,7 @@ export class AVPlayerController extends EventTarget {
   }
 
   configure(config: AVPlayerConfig): void {
+    if (Object.hasOwn(config, 'crossorigin')) this.#crossoriginExplicit = true;
     this.#config = mergeConfig(
       this.#config as unknown as Record<string, unknown>,
       config as unknown as Record<string, unknown>,

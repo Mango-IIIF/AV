@@ -186,6 +186,7 @@ interface AVPlayerConfig {
     showSearchMarkers?: boolean;
   };
   audioArt?: {
+    title?: string;
     transcript?: boolean;
     visualizer?: boolean | 'pulse' | 'waveform' | 'spectrum';
   };
@@ -212,9 +213,13 @@ interface AVPlayerConfig {
 }
 ```
 
+`audioArt.title` sets optional text in the audio artwork. It defaults to `''`, so no title is displayed unless the host supplies one. The Canvas label remains the audio element's accessible name. When synchronized artwork transcripts are enabled and cues are available, the cues replace the configured title.
+
 `controls.navigation` shows the Previous and Next buttons, while `controls.autoAdvance` shows the Auto-advance checkbox. Both default to `false`; hiding them does not disable `controller.previous()`, `controller.next()`, or programmatic auto-advance.
 
-`crossorigin` defaults to `''`, so the player does not add a `crossorigin` attribute and ordinary cross-origin media can load without a CORS response. Set it explicitly to `'anonymous'` or `'use-credentials'` when text tracks, canvas frame access, or another feature requires CORS; the media server must then return matching CORS headers.
+`crossorigin` defaults to `''`, so ordinary media does not add a `crossorigin` attribute. When an audio visualizer is enabled, a cross-origin HTTP(S) source instead uses an implicit `anonymous` policy so Web Audio can safely inspect it. If that implicit CORS load fails, the player replaces the audio element and retries once without Web Audio or CORS, preserving audible HTML media playback.
+
+An explicitly supplied `crossorigin` value is always retained. Explicit `'anonymous'` and `'use-credentials'` failures surface as normal media errors and are never retried with weaker security. An explicit empty string keeps ordinary no-CORS loading; for a cross-origin source, visualization is disabled to avoid routing silent samples through Web Audio.
 
 `fetch` and `requestInit` configure manifest, external AnnotationPage, and transcript requests. `resolveRequest` runs immediately before a media URL is assigned; it can obtain an IIIF Auth token, sign a URL, route through a proxy, or enforce an application's access policy. The normalized Canvas exposes discovered auth services to the callback through `context.canvas.authServices`.
 
@@ -268,6 +273,7 @@ Read-only properties are `config`, `state`, `manifest`, `canvas`, `source`, and 
 | `av-annotationschange` | Active Canvas annotation list |
 | `av-configchange` | Resolved controller configuration |
 | `av-statechange` | Complete `AVPlayerState` snapshot |
+| `av-visualizerfallback` | `{ canvasId, sourceUrl, reason: 'cors' }` when ordinary audio playback replaces a failed implicit-CORS visualizer load |
 
 ## Parsing helpers
 
