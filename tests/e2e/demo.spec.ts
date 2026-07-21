@@ -263,6 +263,7 @@ test('audio artwork can show a moving transcript independently from the volume v
 
 test('configuration builder loads a custom manifest URL', async ({ page }) => {
   const manifestUrl = 'https://example.org/custom-manifest.json';
+  const mediaUrl = 'https://example.org/audio.mp3';
   await page.route(manifestUrl, async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
@@ -281,12 +282,17 @@ test('configuration builder loads a custom manifest URL', async ({ page }) => {
             id: 'https://example.org/custom-painting',
             type: 'Annotation',
             motivation: 'painting',
-            body: { id: 'https://example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' },
+            body: { id: mediaUrl, type: 'Sound', format: 'audio/mpeg' },
             target: 'https://example.org/custom-canvas',
           }],
         }],
       }],
     }),
+  }));
+  await page.route(mediaUrl, async (route) => route.fulfill({
+    contentType: 'audio/mpeg',
+    headers: { 'Access-Control-Allow-Origin': '*' },
+    body: sineWaveMp3,
   }));
 
   await page.goto('/');
