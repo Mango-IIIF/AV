@@ -117,6 +117,7 @@ export class MangoAVPlayerElement extends AVControllerElement {
     this.#transcriptCues = [];
     this.#render();
     void this.#loadTranscript();
+    void this.#resolveSource();
   }
 
   protected handleControllerEvent<K extends keyof AVPlayerEventMap>(type: K, event: CustomEvent<AVPlayerEventMap[K]>): void {

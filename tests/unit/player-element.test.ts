@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { defineMangoAVPlayer } from '../../src/components/mango-av-player';
 import { defineMangoAVMedia } from '../../src/components/mango-av-media';
+import { AVPlayerController } from '../../src/controller';
 
 const tagName = 'test-mango-av-player';
 const mediaTagName = 'test-mango-av-media';
@@ -146,6 +147,22 @@ describe('MangoAVPlayerElement media CORS configuration', () => {
     player.config = { audioArt: { title: 'Listen & learn' } };
 
     expect(player.shadowRoot?.querySelector('.audio-art-title')?.textContent).toBe('Listen & learn');
+  });
+
+  it('resolves media when an already-loaded controller is connected', async () => {
+    const controller = new AVPlayerController({
+      resolveRequest: (url) => `${url}?resolved=true`,
+    });
+    await controller.load(audioManifest);
+    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
+    document.body.append(player);
+    player.controller = controller;
+
+    await settle();
+    const audio = player.shadowRoot?.querySelector('audio');
+
+    expect(audio?.src).toBe('https://media.example.org/audio.mp3?resolved=true');
+    expect(controller.media).toBe(audio);
   });
 
   it('applies implicit anonymous CORS before src and connects only after load succeeds', async () => {

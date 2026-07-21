@@ -202,6 +202,21 @@ test('cross-origin audio visualizes with CORS and falls back to ordinary playbac
     await expect.poll(() => fallbackPlayer.evaluate((element: any) => element.controller.media?.readyState ?? 0)).toBeGreaterThanOrEqual(1);
     await expect(fallbackPlayer.locator('audio')).not.toHaveAttribute('crossorigin');
     await expect.poll(() => fallbackPlayer.evaluate((element: any) => element.controller.media?.currentTime ?? 0)).toBeGreaterThan(.1);
+
+    await page.evaluate(async (manifest) => {
+      const controllerOwner = document.createElement('mango-av-player') as any;
+      const controller = controllerOwner.controller;
+      await controller.load(manifest);
+      const player = document.createElement('mango-av-player') as any;
+      player.id = 'loaded-controller-player';
+      document.body.append(player);
+      player.controller = controller;
+    }, audioPlaybackManifest(`http://127.0.0.1:${address.port}/cors.mp3`));
+
+    const loadedControllerPlayer = page.locator('#loaded-controller-player');
+    await expect(loadedControllerPlayer.locator('audio')).toHaveAttribute('src', `http://127.0.0.1:${address.port}/cors.mp3`);
+    await loadedControllerPlayer.locator('media-play-button').click();
+    await expect.poll(() => loadedControllerPlayer.evaluate((element: any) => element.controller.media?.currentTime ?? 0)).toBeGreaterThan(.1);
   } finally {
     await new Promise<void>((resolve, reject) => mediaServer.close((error) => error ? reject(error) : resolve()));
   }
