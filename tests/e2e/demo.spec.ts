@@ -167,9 +167,9 @@ test('cross-origin audio visualizes with CORS and falls back to ordinary playbac
     await corsPlayer.locator('media-play-button').click();
     await expect.poll(() => corsPlayer.evaluate((element: any) => element.controller.media?.readyState ?? 0)).toBeGreaterThanOrEqual(1);
     await expect.poll(() => corsPlayer.evaluate((element: any) => element.controller.media?.currentTime ?? 0)).toBeGreaterThan(.1);
-    if (browserName === 'webkit') {
-      // Playwright's frozen macOS 14 WebKit build does not render audio samples
-      // in headless mode, but it must still create the analyser graph.
+    if (browserName !== 'chromium') {
+      // Headless Firefox and WebKit may advance media without rendering audio
+      // samples, but both must still create the analyser graph.
       await expect.poll(() => page.evaluate(() => Boolean((globalThis as any).__mangoTestAnalyser))).toBe(true);
     } else {
       await expect.poll(() => page.evaluate(() => {
@@ -350,20 +350,35 @@ test('independent components synchronize through one controller', async ({ page 
   await expect(page.locator('mango-av-transcript')).toBeVisible();
   await expect(page.locator('mango-av-annotations')).toBeVisible();
 
+  const player = page.locator('mango-av-player');
+  await expect.poll(() => player.evaluate((element: any) => Boolean(element.controller.media?.src))).toBe(true);
+  await player.evaluate((element: any) => {
+    const activeMedia = element.controller.media as HTMLMediaElement | undefined;
+    activeMedia?.pause();
+    const media = document.createElement('video');
+    Object.defineProperties(media, {
+      readyState: { configurable: true, value: HTMLMediaElement.HAVE_METADATA },
+      duration: { configurable: true, value: 30 },
+    });
+    media.play = async () => { media.dispatchEvent(new Event('play')); };
+    media.pause = () => { media.dispatchEvent(new Event('pause')); };
+    element.controller.attachMedia(media);
+  });
+
   await page.locator('mango-av-chapters button', { hasText: 'Feature details' }).click();
-  await expect.poll(() => page.locator('mango-av-player').evaluate((element: any) => element.controller.state.currentTime)).toBe(8);
+  await expect.poll(() => player.evaluate((element: any) => element.controller.state.currentTime)).toBe(8);
   await expect(page.locator('#component-events')).toContainText('av-canvaschange');
 
   const annotation = page.locator('mango-av-annotations button', { hasText: 'example time-synchronised annotation' });
   await annotation.click();
-  await expect.poll(() => page.locator('mango-av-player').evaluate((element: any) => element.controller.state.currentTime)).toBe(9);
+  await expect.poll(() => player.evaluate((element: any) => element.controller.state.currentTime)).toBe(9);
   await expect(annotation).toHaveClass(/active/);
 
   const cue = page.locator('mango-av-transcript button', { hasText: 'Welcome to the Mango' });
   await cue.click();
-  await expect.poll(() => page.locator('mango-av-player').evaluate((element: any) => element.controller.state.currentTime)).toBe(0);
+  await expect.poll(() => player.evaluate((element: any) => element.controller.state.currentTime)).toBe(0);
   await expect(cue).toHaveClass(/active/);
-  await expect.poll(() => page.locator('mango-av-player').evaluate((element: any) => element.controller.state.status)).toBe('playing');
+  await expect.poll(() => player.evaluate((element: any) => element.controller.state.status)).toBe('playing');
 
   await page.locator('mango-av-player').evaluate((element: any) => {
     element.controller.pause();
