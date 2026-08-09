@@ -56,6 +56,15 @@
               <option value="spectrum">Spectrum</option>
             </select>
           </label>
+          <label>Visualizer follows accent
+            <input id="visualizer-follows-accent" type="checkbox" checked>
+          </label>
+          <label>Visualizer colour
+            <input id="visualizer-color" type="color" value="#5b3fd6" disabled>
+          </label>
+          <label>Visualizer intensity
+            <span class="range"><input id="visualizer-intensity" type="range" min="0" max="2" step=".05" value="1"><output id="visualizer-intensity-value" aria-hidden="true">1</output></span>
+          </label>
         </fieldset>
 
         <fieldset>

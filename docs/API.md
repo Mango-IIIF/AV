@@ -139,6 +139,8 @@ Renders and follows the active Canvas annotations. Selecting a timed annotation 
 | --- | --- |
 | `--mango-av-accent` | `#5b3fd6` |
 | `--mango-av-accent-contrast` | `#fff` |
+| `--mango-av-visualizer-color` | `var(--mango-av-accent)` |
+| `--mango-av-visualizer-intensity` | `1` |
 | `--mango-av-background` | `#fff` |
 | `--mango-av-surface` | `#f5f5f8` |
 | `--mango-av-text` | `#18181b` |
@@ -150,6 +152,17 @@ Renders and follows the active Canvas annotations. Selecting a timed annotation 
 | `--mango-av-player-aspect-ratio` | `16 / 9` |
 
 For audio Canvases, `audioArt.transcript` replaces the artwork title with the current timed cue. The preceding and following cues remain visible at reduced opacity and slide as playback crosses cue boundaries. `audioArt.visualizer` accepts `'pulse'`, `'waveform'`, `'spectrum'`, `true` (an alias for `'pulse'`), or `false`. Every mode inherits `--mango-av-accent`, fades out completely during silence or pause, and reduces or removes movement when `prefers-reduced-motion: reduce` is active.
+
+Two further properties tune the visualizer without changing the rest of the theme. `--mango-av-visualizer-color` gives it a colour of its own, leaving `--mango-av-accent` to control links, tabs and controls. `--mango-av-visualizer-intensity` is a unitless multiplier on how strongly it renders: `1` is the default appearance, values below `1` damp it, `0` hides it entirely, and values above `1` strengthen it up to the point of saturation. It applies to every mode — the depth of the `pulse` tint, the height of the `waveform` trace, and the height of the `spectrum` bars — scaling opacity and size together so it reads as strength rather than as a fade. Each mode keeps its own ceiling, so raising intensity cannot push a wave or a bar outside the artwork.
+
+Intensity scales the rendered output only — the analysed audio level, the silence fade and the `prefers-reduced-motion` reduction all behave the same at every setting. Neither property is declared on an inner element, so a value set on the custom element (or any ancestor) inherits through to the artwork.
+
+```css
+mango-av-player {
+  --mango-av-visualizer-color: #2ac7ff;
+  --mango-av-visualizer-intensity: .4;
+}
+```
 
 Media Chrome's own public variables remain available and can override the mapped defaults.
 

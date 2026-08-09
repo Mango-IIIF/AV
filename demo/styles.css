@@ -28,6 +28,9 @@ select, input:not([type=checkbox]) { max-width: 10rem; }
 .manifest-input button:disabled { cursor: wait; opacity: .6; }
 .checks { display: grid; grid-template-columns: 1fr 1fr; }
 .checks label { justify-content: flex-start; }
+.range { align-items: center; display: flex; gap: .4rem; max-width: 10rem; }
+.range output { font-variant-numeric: tabular-nums; min-width: 1.9rem; text-align: right; }
+label:has(input:disabled) { color: #62626a; }
 details { margin-top: 1rem; }
 summary { cursor: pointer; font-weight: 750; }
 pre { background: #17151d; border-radius: .6rem; color: #eeeaf7; font-size: .72rem; max-height: 19rem; overflow: auto; padding: .8rem; white-space: pre-wrap; }

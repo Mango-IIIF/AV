@@ -1,7 +1,7 @@
 import { AVControllerElement } from './controller-element';
 import { componentTheme } from './component-styles';
 import { ensureMediaChrome } from './media-chrome';
-import { AudioArtVisualizer, audioArtContentHtml, audioArtTranscriptHtml, resolveAudioVisualizerMode, syncAudioArtTranscript } from './audio-art';
+import { AudioArtVisualizer, audioArtContentHtml, audioArtTranscriptHtml, resolveAudioVisualizerMode, syncAudioArtTranscript, registerVisualizerProperties } from './audio-art';
 import { loadTranscript } from '../transcript';
 import type { AVCanvas, AVManifest, AVPlayerConfig, AVPlayerEventMap, JsonObject, MediaSource, TranscriptCue } from '../types';
 import { escapeHtml, formatString, resolveStrings } from '../utils';
@@ -22,7 +22,7 @@ const styles = `${componentTheme}
   audio { width: 100%; }
   media-control-bar { width: 100%; }
   .audio-art { --mango-av-wave-edge-strength: 0%; --mango-av-wave-mid-strength: 0%; --mango-av-wave-rise: 8%; --mango-av-wave-strength: 0%; align-items: center; aspect-ratio: 16 / 7; background: linear-gradient(#09080d, #111019); display: flex; justify-content: center; overflow: hidden; padding: 2rem; position: relative; text-align: center; }
-  .audio-art.visualizer--pulse { background: radial-gradient(ellipse 140% 72% at 50% calc(100% + var(--mango-av-wave-rise)), color-mix(in srgb, var(--mango-av-accent) var(--mango-av-wave-strength), transparent) 0%, color-mix(in srgb, var(--mango-av-accent) var(--mango-av-wave-mid-strength), transparent) 40%, color-mix(in srgb, var(--mango-av-accent) var(--mango-av-wave-edge-strength), transparent) 62%, transparent 78%), linear-gradient(#09080d, #111019); }
+  .audio-art.visualizer--pulse { background: radial-gradient(ellipse 140% 72% at 50% calc(100% + var(--mango-av-wave-rise)), color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 0%, color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-mid-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 40%, color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-edge-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 62%, transparent 78%), linear-gradient(#09080d, #111019); }
   .audio-art-text { display: contents; }
   .audio-art-visualizer-canvas { height: 100%; inset: 0; pointer-events: none; position: absolute; width: 100%; }
   .audio-art-title { font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; position: relative; z-index: 1; }
@@ -348,6 +348,7 @@ export class MangoAVPlayerElement extends AVControllerElement {
 }
 
 export const defineMangoAVPlayer = (tagName = 'mango-av-player'): typeof MangoAVPlayerElement => {
+  registerVisualizerProperties();
   if (typeof customElements === 'undefined') return MangoAVPlayerElement;
   if (!customElements.get(tagName)) customElements.define(tagName, MangoAVPlayerElement);
   return MangoAVPlayerElement;

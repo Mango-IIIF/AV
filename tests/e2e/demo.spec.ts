@@ -261,6 +261,43 @@ test('audio artwork can show a moving transcript independently from the volume v
   await expect(page.locator('#generated-code')).toContainText('"visualizer": "spectrum"');
 });
 
+test('visualizer colour and intensity controls retune the artwork', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#preset').selectOption('audio');
+  await page.getByLabel('Audio visualizer').selectOption('pulse');
+
+  const art = page.locator('mango-av-media .audio-art');
+  const colour = page.getByLabel('Visualizer colour');
+  const intensity = page.getByLabel('Visualizer intensity');
+  const resolved = (property: string) => art.evaluate(
+    (element, name) => getComputedStyle(element).getPropertyValue(name).trim(),
+    property,
+  );
+
+  // Unset is what makes the visualizer follow the accent, so the colour input
+  // stays disabled until the host opts out of that link.
+  await expect(colour).toBeDisabled();
+  await expect(resolved('--mango-av-visualizer-color')).resolves.toBe('');
+
+  await page.getByLabel('Visualizer follows accent').uncheck();
+  await expect(colour).toBeEnabled();
+  await colour.fill('#00ff88');
+  await expect(resolved('--mango-av-visualizer-color')).resolves.toBe('#00ff88');
+
+  await intensity.fill('0.4');
+  await expect(resolved('--mango-av-visualizer-intensity')).resolves.toBe('0.4');
+  await expect(page.locator('#visualizer-intensity-value')).toHaveText('0.4');
+  await expect(page.locator('#generated-code')).toContainText("'--mango-av-visualizer-intensity', '0.4'");
+
+  // Defaults are left out of the snippet so it stays a minimal recipe.
+  await intensity.fill('1');
+  await expect(page.locator('#generated-code')).not.toContainText('--mango-av-visualizer-intensity');
+
+  await page.getByLabel('Audio visualizer').selectOption('none');
+  await expect(intensity).toBeDisabled();
+  await expect(colour).toBeDisabled();
+});
+
 test('configuration builder loads a custom manifest URL', async ({ page }) => {
   const manifestUrl = 'https://example.org/custom-manifest.json';
   const mediaUrl = 'https://example.org/audio.mp3';

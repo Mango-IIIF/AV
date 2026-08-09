@@ -173,6 +173,11 @@ mango-av-annotations.tailwind-audio {
 }
 ```
 
+The audio artwork visualizer follows `--mango-av-accent` unless it is given
+`--mango-av-visualizer-color`, and `--mango-av-visualizer-intensity` scales how
+strongly it renders (`1` by default, `0` to hide it). See
+[docs/API.md](docs/API.md) for the full property list.
+
 Media Chrome variables such as `--media-primary-color` and `--media-secondary-color` can also be set directly. The complete element provides `header`, `before-player`, `player-overlay`, `controls`, and `after-player` slots. The standalone player provides `overlay` and `controls`; the information components provide a `heading` slot.
 
 Run `npm run dev` to use the interactive configuration builder and the linked composable-components demonstration. They include Video, HLS, and Audio presets, feature switches, generated API configuration, independently positioned components, and multiple style recipes.
