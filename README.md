@@ -1,6 +1,8 @@
 # @mango-iiif/av
 
-Framework-free IIIF audio and video components powered by [Media Chrome](https://www.media-chrome.org/). The package reads Presentation 2 and Presentation 3 manifests and exposes an all-in-one element, independently placeable components, and a typed controller API. It has no React or Svelte runtime dependency.
+IIIF audio and video custom elements, played through [Samvera RAMP](https://github.com/samvera-labs/ramp). The package reads Presentation 2 and Presentation 3 manifests and exposes an all-in-one element, independently placeable components, and a typed controller API.
+
+The elements are framework-free to use. RAMP is a React and Video.js library, so React, RAMP and Video.js are installed as dependencies. They are loaded with a dynamic import the first time a player renders, so pages that only use the panels or the controller never download them.
 
 ## Install
 
@@ -10,7 +12,7 @@ npm install @mango-iiif/av
 
 ## Complete media experience
 
-`<mango-av-media>` contains the player, chapters, transcript, annotations, metadata, and supplemental files:
+`<mango-av-media>` puts the RAMP player first, then the playback position, then the transcript, chapters, annotations, metadata and supplemental files in tabs underneath:
 
 ```ts
 import '@mango-iiif/av';
@@ -34,11 +36,7 @@ media.config = {
     pictureInPicture: true,
     fullscreen: true,
   },
-  audioArt: {
-    title: 'Listen to this recording',
-    transcript: true,
-    visualizer: 'waveform',
-  },
+  audioArt: { title: 'Listen to this recording' },
   resume: { enabled: true },
 };
 
@@ -110,12 +108,11 @@ const controller = new AVPlayerController({
     next: 'Nesaf',
     searchTranscript: 'Chwilio’r trawsgrifiad',
     sourceNumber: 'Ffynhonnell {number}',
-    resumePrompt: 'Parhau o {time}?',
   },
 });
 ```
 
-`preferredLanguages` chooses localized IIIF labels and sets the Media Chrome language. The package automatically loads Media Chrome's bundled German, Spanish, French, Portuguese, and Chinese dictionaries. `strings` covers the Mango AV wrapper UI and generated fallback labels for any language. The complete English dictionary is exported as `defaultStrings` for building and validating translation files.
+`preferredLanguages` chooses localized IIIF labels and is passed to RAMP, which loads the matching Video.js dictionary for the player controls. `strings` covers the Mango AV wrapper UI and generated fallback labels for any language. The complete English dictionary is exported as `defaultStrings` for building and validating translation files.
 
 ## Svelte
 
@@ -169,23 +166,33 @@ mango-av-annotations.tailwind-audio {
   --mango-av-border: #cbd5e1;
   --mango-av-radius: 0.875rem;
   --mango-av-font: Inter, ui-sans-serif, system-ui;
-  --mango-av-panel-width: 26rem;
+  --mango-av-list-height: 30rem;
 }
 ```
 
-The audio artwork visualizer follows `--mango-av-accent` unless it is given
-`--mango-av-visualizer-color`, and `--mango-av-visualizer-intensity` scales how
-strongly it renders (`1` by default, `0` to hide it). See
-[docs/API.md](docs/API.md) for the full property list.
+A theme set on `<mango-av-media>` reaches the player and panels inside it. See [docs/API.md](docs/API.md) for the full property list. The player controls wear Video.js's default skin.
 
-Media Chrome variables such as `--media-primary-color` and `--media-secondary-color` can also be set directly. The complete element provides `header`, `before-player`, `player-overlay`, `controls`, and `after-player` slots. The standalone player provides `overlay` and `controls`; the information components provide a `heading` slot.
+The complete element provides `header`, `before-player` and `after-player` slots. The standalone player provides `stage`, for content shown with the media such as captions, and `after-player`. The information components provide a `heading` slot.
+
+## Audio captions
+
+Audio can read like video: `<mango-av-captions>` shows the line being spoken, with the lines either side faded. In `<mango-av-media>`, set `audioArt: { captions: 'context' }` (or `'line'`). In a layout of your own, put it in a player's `stage` slot, or anywhere else, on the same controller:
+
+```html
+<mango-av-transcript></mango-av-transcript>
+<mango-av-player>
+  <mango-av-captions slot="stage"></mango-av-captions>
+</mango-av-player>
+```
+
+`npm run dev` and open `/captions.html` to see both.
 
 Run `npm run dev` to use the interactive configuration builder and the linked composable-components demonstration. They include Video, HLS, and Audio presets, feature switches, generated API configuration, independently positioned components, and multiple style recipes.
 
 ## Supported IIIF AV behavior
 
 - Presentation 2 sequences and Presentation 3 Canvas items
-- Audio, video, native HLS, and hls.js-backed HLS through `<hls-video>`
+- Audio, video and HLS, played by RAMP's Video.js
 - `Choice` and multiple painting bodies, media source selection, temporal fragments, and clipped playback
 - Multi-Canvas previous/next, `start`/`startCanvas`, `auto-advance`, and `repeat`
 - Nested Range navigation and temporal chapters
@@ -195,7 +202,7 @@ Run `npm run dev` to use the interactive configuration builder and the linked co
 - Commenting, supplementing, transcribing, tagging, and highlighting annotations
 - Manifest/Canvas metadata, rights, required statements, homepages, and `rendering` downloads
 - Placeholder posters, request resolution for protected media, and service metadata normalization
-- Optional persisted playback positions
+- Optional persisted playback positions, through RAMP's resume cache
 - Configurable annotation create/update/delete adapters
 
 See [API.md](docs/API.md) for the complete API and [FEATURE_PARITY.md](docs/FEATURE_PARITY.md) for feature coverage.

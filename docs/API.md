@@ -4,17 +4,18 @@
 
 - `@mango-iiif/av` exports the complete API and registers all Mango AV custom elements in a browser.
 - `@mango-iiif/av/core` exports parsing, types, transcript helpers, and `AVPlayerController` without registering a custom element.
-- `@mango-iiif/av/media`, `/player`, `/chapters`, `/transcript`, and `/annotations` register and export only the selected element.
+- `@mango-iiif/av/media`, `/player`, `/chapters`, `/transcript`, `/annotations` and `/captions` register and export only the selected element.
 
 ## Components
 
 | Element | Purpose |
 | --- | --- |
-| `<mango-av-media>` | Complete precomposed player, navigation, transcript, annotations, metadata, and files. |
-| `<mango-av-player>` | Media Chrome audio/video playback and Canvas/source controls only. |
+| `<mango-av-media>` | The player with its position, and the transcript, chapters, annotations, metadata and files in tabs beneath it. |
+| `<mango-av-player>` | Audio and video playback through [Samvera RAMP](https://github.com/samvera-labs/ramp), with Canvas and source controls. |
 | `<mango-av-chapters>` | Independently placeable structured Range navigation. |
 | `<mango-av-transcript>` | Independently placeable synchronized transcript, selector, search, and download UI. |
 | `<mango-av-annotations>` | Independently placeable synchronized annotation UI. |
+| `<mango-av-captions>` | The line being spoken, shown as captions are on video. |
 
 ## `<mango-av-media>`
 
@@ -43,10 +44,12 @@
 | Slot | Location |
 | --- | --- |
 | `header` | Replaces the default manifest title and summary. |
-| `before-player` | Before the Media Chrome controller. |
-| `player-overlay` | Inside the Media Chrome controller, above media. |
-| `controls` | Replaces the default Media Chrome controls and menus. |
-| `after-player` | After the player and toolbar. |
+| `before-player` | Before the player. |
+| `after-player` | After the player and toolbar, before the position and tabs. |
+
+### Layout
+
+Under the player, a position line reads `Position 0:12 / 3:45`. Below it, segmented tabs hold the Transcript, Chapters, Annotations, Metadata and Files panels, in that order, for the panels enabled in `config.panels`. `activePanel` chooses the tab shown first and defaults to `'transcript'`; `'none'` hides the tabs. The tabs are the standalone `<mango-av-transcript>`, `<mango-av-chapters>` and `<mango-av-annotations>` elements, sharing the element's controller, so they look and behave the same in both places.
 
 ## Standalone components
 
@@ -98,7 +101,7 @@ const welsh: Partial<AVStrings> = {
   previous: 'Blaenorol',
   next: 'Nesaf',
   sourceNumber: 'Ffynhonnell {number}',
-  resumePrompt: 'Parhau o {time}?',
+  searchTranscript: 'Chwilio’r trawsgrifiad',
 };
 
 const controller = new AVPlayerController({
@@ -111,27 +114,62 @@ The placeholders `{number}`, `{time}`, `{status}`, `{statusText}`, and `{type}` 
 
 String keys cover:
 
-- panel, navigation, download, search, resume, and accessibility labels;
+- panel, navigation, download, search, position and accessibility labels;
 - loading, error, and empty states;
 - generated IIIF fallback labels such as `sourceNumber`, `transcriptNumber`, `sectionNumber`, `chapterNumber`, and `untitledManifest`.
 
-`preferredLanguages` separately controls which language is selected from IIIF language maps. It is also applied to Media Chrome's `lang` attribute. German, Spanish, French, Portuguese, Simplified Chinese, and Traditional Chinese Media Chrome dictionaries are loaded automatically when selected; custom Mango AV strings work with any language.
+`preferredLanguages` separately controls which language is selected from IIIF language maps. Its first language other than `none` is also passed to RAMP, which loads the matching Video.js dictionary for the player controls when one exists. Custom Mango AV strings work with any language.
 
 ### `<mango-av-player>`
 
-The standalone player supports `manifest`, `config`, `load`, `play`, `pause`, `seekTo`, and `selectCanvas`, as well as the `manifest-url` and JSON `config` attributes. Its slots are `overlay` and `controls`.
+The standalone player supports `manifest`, `config`, `load`, `play`, `pause`, `seekTo`, and `selectCanvas`, as well as the `manifest-url` and JSON `config` attributes. It has two slots:
+
+- `stage` holds content shown with the media. For audio it sits in the card, above the controls; for video it overlays the foot of the picture, clear of the controls, and lets clicks through to the player. `<mango-av-captions>` is made for it.
+- `after-player` sits between the player and its toolbar.
+
+RAMP renders the controls and the media element. React, RAMP and Video.js are loaded with a dynamic import the first time a player renders, so pages that only use the panels or the controller don't download them. The player gives RAMP a Presentation 3 Manifest holding only the active Canvas and source, rebuilt from the normalized model. Presentation 2 Manifests, `resolveRequest` and the source selector therefore work as before, and Canvas navigation stays with the controller. The controller attaches to RAMP's media element, so `controller.media`, playback state and events behave as they do for any media element.
+
+| Control | Setting |
+| --- | --- |
+| Play, progress bar, time, volume, fullscreen | Always offered; `controls.seek`, `controls.volume` and `controls.fullscreen` hide them |
+| Skip back and forward | Shown with `controls.seek`; `controls.skipSeconds` is rounded to the nearest of 5, 10 or 30, the lengths Video.js allows |
+| Captions | `controls.captions`, when the Canvas has caption or subtitle files |
+| Playback rate | `controls.playbackRate`, offering `playbackRates` |
+| Picture in picture | `controls.pictureInPicture`, video only |
+| Download | `controls.download`, offering the Manifest and Canvas `rendering` files |
+| Quality | Shown by RAMP when it has several sources to choose between |
+| Previous, Next, Auto-advance, source | `controls.navigation`, `controls.autoAdvance`, `controls.sourceSelector`, in the toolbar under the player |
+
+Audio Canvases show a card in place of a picture: the Canvas poster or Manifest thumbnail, a `Recording` eyebrow, and `audioArt.title`, which defaults to the Manifest label.
 
 ### `<mango-av-chapters>`
 
-Renders nested IIIF Ranges. Selecting a chapter calls `controller.selectCanvas()` and emits the bubbling `av-chapterselect` DOM event.
+Renders nested IIIF Ranges as rows of start time and label. The chapter being heard is highlighted. Selecting a chapter calls `controller.selectCanvas()` and emits the bubbling `av-chapterselect` DOM event. The heading can be replaced through the `heading` slot.
 
 ### `<mango-av-transcript>`
 
-Loads the active Canvas transcript and follows controller time. Selecting a timed cue calls `controller.seekTo()` and `controller.play()`. It emits `av-transcriptcueselect` and `av-transcriptsearch`. The heading can be replaced through the `heading` slot.
+Loads the active Canvas transcript, with a `Find in transcript` search above rows of cue time and text. The cue being heard is highlighted, and while playing it is kept at the top of the list; paused, the list stays where the user scrolled. Selecting a timed cue calls `controller.seekTo()` and `controller.play()`. It emits `av-transcriptcueselect` and `av-transcriptsearch`. The heading can be replaced through the `heading` slot.
 
 ### `<mango-av-annotations>`
 
-Renders and follows the active Canvas annotations. Selecting a timed annotation calls `controller.seekTo()` and `controller.play()`. It emits `av-annotationselect`. The heading can be replaced through the `heading` slot.
+Renders the active Canvas annotations as rows of start time (or `—` for untimed annotations), text and tags, highlighting those being heard. Selecting a timed annotation calls `controller.seekTo()` and `controller.play()`. It emits `av-annotationselect`. The heading can be replaced through the `heading` slot.
+
+### `<mango-av-captions>`
+
+Shows the active Canvas transcript as captions: the line being spoken, large, with the lines either side faded. It reads the same transcript as `<mango-av-transcript>`, and the two share one load. WebVTT voice tags (`<v Ana>`) give each line its speaker.
+
+```html
+<mango-av-player>
+  <mango-av-captions slot="stage"></mango-av-captions>
+</mango-av-player>
+```
+
+| Attribute | Purpose |
+| --- | --- |
+| `line` | Show only the line being spoken. |
+| `audio-only` | Hide while a video plays, since video has captions of its own. |
+
+It can sit anywhere a controller reaches, not only in a player. Inside the `stage` slot over video it takes white text on a dark band. Elsewhere it follows the theme, and `--mango-av-captions-color`, `--mango-av-captions-background`, `--mango-av-captions-size` and `--mango-av-captions-padding` restyle it. It's a labelled `Captions` region, but it doesn't announce each line as it changes; screen reader users can follow the transcript instead.
 
 ### CSS custom properties
 
@@ -139,32 +177,22 @@ Renders and follows the active Canvas annotations. Selecting a timed annotation 
 | --- | --- |
 | `--mango-av-accent` | `#5b3fd6` |
 | `--mango-av-accent-contrast` | `#fff` |
-| `--mango-av-visualizer-color` | `var(--mango-av-accent)` |
-| `--mango-av-visualizer-intensity` | `1` |
+| `--mango-av-accent-tint` | the accent at 12%, behind the row being heard |
 | `--mango-av-background` | `#fff` |
-| `--mango-av-surface` | `#f5f5f8` |
+| `--mango-av-surface` | `#f4f4f6`, for the tab well, inputs and row hover |
 | `--mango-av-text` | `#18181b` |
 | `--mango-av-muted` | `#62626a` |
 | `--mango-av-border` | `#d7d7de` |
-| `--mango-av-radius` | `.65rem` |
+| `--mango-av-danger` | `#b42318` |
+| `--mango-av-radius` | `10px` |
 | `--mango-av-font` | system sans-serif |
-| `--mango-av-panel-width` | `24rem` |
-| `--mango-av-player-aspect-ratio` | `16 / 9` |
+| `--mango-av-list-height` | `24rem`, the most a panel's list grows before it scrolls |
+| `--mango-av-panel-background`, `--mango-av-panel-border`, `--mango-av-panel-padding` | The card around a standalone panel; `<mango-av-media>` sets them to nothing |
+| `--mango-av-player-aspect-ratio` | The Canvas or source width and height, else `16 / 9` |
 
-For audio Canvases, `audioArt.transcript` replaces the artwork title with the current timed cue. The preceding and following cues remain visible at reduced opacity and slide as playback crosses cue boundaries. `audioArt.visualizer` accepts `'pulse'`, `'waveform'`, `'spectrum'`, `true` (an alias for `'pulse'`), or `false`. Every mode inherits `--mango-av-accent`, fades out completely during silence or pause, and reduces or removes movement when `prefers-reduced-motion: reduce` is active.
+A theme set on `<mango-av-media>` reaches the player and panels inside it.
 
-Two further properties tune the visualizer without changing the rest of the theme. `--mango-av-visualizer-color` gives it a colour of its own, leaving `--mango-av-accent` to control links, tabs and controls. `--mango-av-visualizer-intensity` is a unitless multiplier on how strongly it renders: `1` is the default appearance, values below `1` damp it, `0` hides it entirely, and values above `1` strengthen it up to the point of saturation. It applies to every mode — the depth of the `pulse` tint, the height of the `waveform` trace, and the height of the `spectrum` bars — scaling opacity and size together so it reads as strength rather than as a fade. Each mode keeps its own ceiling, so raising intensity cannot push a wave or a bar outside the artwork.
-
-Intensity scales the rendered output only — the analysed audio level, the silence fade and the `prefers-reduced-motion` reduction all behave the same at every setting. Neither property is declared on an inner element, so a value set on the custom element (or any ancestor) inherits through to the artwork.
-
-```css
-mango-av-player {
-  --mango-av-visualizer-color: #2ac7ff;
-  --mango-av-visualizer-intensity: .4;
-}
-```
-
-Media Chrome's own public variables remain available and can override the mapped defaults.
+The player controls wear Video.js's default skin: a solid bar along the bottom of the video, or on its own for audio, with the progress bar between the buttons. RAMP's stylesheet is loaded into the player's shadow root, but its overlay theme, `vjs-theme-ramp`, is taken off once the player is ready, and RAMP's own controls are seated in the default bar. In a narrow player, volume and picture in picture are dropped at 480px wide or less, and the skip buttons and playback rate at 360px or less.
 
 ## `AVPlayerConfig`
 
@@ -196,18 +224,15 @@ interface AVPlayerConfig {
     download?: boolean;
     showNotes?: boolean;
     showMetadata?: boolean;
-    showSearchMarkers?: boolean;
   };
   audioArt?: {
     title?: string;
-    transcript?: boolean;
-    visualizer?: boolean | 'pulse' | 'waveform' | 'spectrum';
+    captions?: false | 'line' | 'context';
   };
   resume?: {
     enabled?: boolean;
     maxItems?: number;
     ttlDays?: number;
-    prompt?: boolean;
   };
   strings?: Partial<AVStrings>;
   preferredLanguages?: string[];
@@ -216,8 +241,7 @@ interface AVPlayerConfig {
   startCanvasId?: string;
   startTime?: number;
   activePanel?: 'chapters' | 'transcript' | 'annotations' | 'metadata' | 'files' | 'none';
-  crossorigin?: 'anonymous' | 'use-credentials' | '';
-  preload?: 'none' | 'metadata' | 'auto';
+  withCredentials?: boolean;
   playbackRates?: number[];
   fetch?: typeof globalThis.fetch;
   requestInit?: RequestInit;
@@ -226,13 +250,15 @@ interface AVPlayerConfig {
 }
 ```
 
-`audioArt.title` sets optional text in the audio artwork. It defaults to `''`, so no title is displayed unless the host supplies one. The Canvas label remains the audio element's accessible name. When synchronized artwork transcripts are enabled and cues are available, the cues replace the configured title.
+`audioArt.title` sets the heading of the audio card. It defaults to `''`, which shows the Manifest label.
+
+`audioArt.captions` shows the transcript in the audio card of `<mango-av-media>`, as captions are on video: `'context'` with the lines either side, `'line'` with only the line being spoken. It defaults to `false`. The captions step aside while a video Canvas plays.
+
+`resume` turns on RAMP's playback position cache. RAMP saves the position as playback goes and, when a saved position is found, offers to resume from it.
 
 `controls.navigation` shows the Previous and Next buttons, while `controls.autoAdvance` shows the Auto-advance checkbox. Both default to `false`; hiding them does not disable `controller.previous()`, `controller.next()`, or programmatic auto-advance.
 
-`crossorigin` defaults to `''`, so ordinary media does not add a `crossorigin` attribute. When an audio visualizer is enabled, a cross-origin HTTP(S) source instead uses an implicit `anonymous` policy so Web Audio can safely inspect it. If that implicit CORS load fails, the player replaces the audio element and retries once without Web Audio or CORS, preserving audible HTML media playback.
-
-An explicitly supplied `crossorigin` value is always retained. Explicit `'anonymous'` and `'use-credentials'` failures surface as normal media errors and are never retried with weaker security. An explicit empty string keeps ordinary no-CORS loading; for a cross-origin source, visualization is disabled to avoid routing silent samples through Web Audio.
+`withCredentials` is passed to RAMP, which marks each source to be fetched with credentials. That covers the requests Video.js makes itself, such as HLS playlists and segments. Progressive files such as MP4 and MP3 are loaded by the browser's media element, which this does not change. It defaults to `false`.
 
 `fetch` and `requestInit` configure manifest, external AnnotationPage, and transcript requests. `resolveRequest` runs immediately before a media URL is assigned; it can obtain an IIIF Auth token, sign a URL, route through a proxy, or enforce an application's access policy. The normalized Canvas exposes discovered auth services to the callback through `context.canvas.authServices`.
 
@@ -264,7 +290,7 @@ Playback methods:
 - `play`, `pause`, `stop`, `seekTo`, and `seekBy`
 - `selectCanvas`, `next`, `previous`, and `selectSource`
 - `setAutoAdvance` and `setRepeat`
-- `getSavedPosition` and `resolvedSourceUrl`
+- `resolvedSourceUrl`
 - `createAnnotation`, `updateAnnotation`, and `removeAnnotation`
 - `on(event, listener)`, which returns an unsubscribe function
 
@@ -286,7 +312,6 @@ Read-only properties are `config`, `state`, `manifest`, `canvas`, `source`, and 
 | `av-annotationschange` | Active Canvas annotation list |
 | `av-configchange` | Resolved controller configuration |
 | `av-statechange` | Complete `AVPlayerState` snapshot |
-| `av-visualizerfallback` | `{ canvasId, sourceUrl, reason: 'cors' }` when ordinary audio playback replaces a failed implicit-CORS visualizer load |
 
 ## Parsing helpers
 

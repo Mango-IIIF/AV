@@ -28,9 +28,6 @@ select, input:not([type=checkbox]) { max-width: 10rem; }
 .manifest-input button:disabled { cursor: wait; opacity: .6; }
 .checks { display: grid; grid-template-columns: 1fr 1fr; }
 .checks label { justify-content: flex-start; }
-.range { align-items: center; display: flex; gap: .4rem; max-width: 10rem; }
-.range output { font-variant-numeric: tabular-nums; min-width: 1.9rem; text-align: right; }
-label:has(input:disabled) { color: #62626a; }
 details { margin-top: 1rem; }
 summary { cursor: pointer; font-weight: 750; }
 pre { background: #17151d; border-radius: .6rem; color: #eeeaf7; font-size: .72rem; max-height: 19rem; overflow: auto; padding: .8rem; white-space: pre-wrap; }
@@ -68,3 +65,12 @@ pre { background: #17151d; border-radius: .6rem; color: #eeeaf7; font-size: .72r
 .composition-annotations { grid-area: annotations; }
 .composition-events { background: #211b31; border-radius: .6rem; color: white; grid-area: events; padding: .8rem 1rem; }
 @media (max-width: 850px) { .composition { grid-template-areas: "player" "chapters" "transcript" "annotations" "events"; grid-template-columns: 1fr; } }
+.showcase { grid-template-columns: minmax(0, 1fr); max-width: 1000px; }
+.showcase-section { background: white; border: 1px solid #dcdae4; border-radius: 1rem; box-shadow: 0 12px 35px #29223d12; display: grid; gap: 1rem; min-width: 0; padding: 1.2rem; }
+.showcase-heading { align-items: end; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; }
+.showcase-heading h2 { margin: 0; }
+.showcase-heading p:not(.eyebrow) { color: #64606c; margin: .4rem 0 0; max-width: 38rem; }
+.showcase-heading label { margin: 0; }
+.showcase pre { margin: 0; }
+.showcase code { font-size: .8rem; }
+.own-layout { display: grid; gap: 1rem; }

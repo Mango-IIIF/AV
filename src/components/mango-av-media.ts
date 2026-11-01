@@ -1,164 +1,104 @@
 import { AVPlayerController } from '../controller';
-import { loadTranscript } from '../transcript';
-import { ensureMediaChrome } from './media-chrome';
-import { playFromInteraction } from './playback';
-import { AudioArtVisualizer, audioArtContentHtml, audioArtTranscriptHtml, resolveAudioVisualizerMode, syncAudioArtTranscript, registerVisualizerProperties } from './audio-art';
+import { componentTheme, panelStyles } from './component-styles';
+import { defineMangoAVPlayer, MangoAVPlayerElement } from './mango-av-player';
+import { defineMangoAVChapters, MangoAVChaptersElement } from './mango-av-chapters';
+import { defineMangoAVTranscript, MangoAVTranscriptElement } from './mango-av-transcript';
+import { defineMangoAVAnnotations, MangoAVAnnotationsElement } from './mango-av-annotations';
+import { defineMangoAVCaptions, MangoAVCaptionsElement } from './mango-av-captions';
+import type { AVControllerElement } from './controller-element';
+import { HTMLElementBase, controllerEventTypes } from './controller-element';
 import type {
-  AVAnnotation,
   AVCanvas,
   AVManifest,
   AVPlayerConfig,
-  AVPlayerEventMap,
   AVStrings,
-  Chapter,
   JsonObject,
   MetadataEntry,
-  TranscriptCue,
 } from '../types';
-import { escapeHtml, formatString, formatTime, resolveStrings } from '../utils';
-import { applyMediaSource, resolveAudioMediaPolicy } from './media-policy';
+import { escapeHtml, formatTime, resolveStrings } from '../utils';
 
-const HTMLElementBase = (globalThis.HTMLElement ?? class {}) as typeof HTMLElement;
+type Panel = NonNullable<AVPlayerConfig['activePanel']>;
 
-let hlsElementRegistration: Promise<unknown> | undefined;
-const ensureHlsElement = (): Promise<unknown> => {
-  hlsElementRegistration ??= import('hls-video-element');
-  return hlsElementRegistration;
-};
+/* The components are rendered under whatever tags they were defined with. */
+const tags = () => ({
+  player: MangoAVPlayerElement.registeredTag ?? 'mango-av-player',
+  transcript: MangoAVTranscriptElement.registeredTag ?? 'mango-av-transcript',
+  chapters: MangoAVChaptersElement.registeredTag ?? 'mango-av-chapters',
+  annotations: MangoAVAnnotationsElement.registeredTag ?? 'mango-av-annotations',
+  captions: MangoAVCaptionsElement.registeredTag ?? 'mango-av-captions',
+});
 
-const eventTypes: Array<keyof AVPlayerEventMap> = [
-  'av-loadstart',
-  'av-ready',
-  'av-error',
-  'av-canvaschange',
-  'av-sourcechange',
-  'av-play',
-  'av-pause',
-  'av-timeupdate',
-  'av-seek',
-  'av-ended',
-  'av-annotationschange',
-  'av-configchange',
-  'av-statechange',
-  'av-visualizerfallback',
-];
+/* The theme set on this element reaches the components inside it, over their own defaults. */
+const inheritedTokens = ['accent', 'accent-contrast', 'accent-tint', 'background', 'surface', 'text', 'muted', 'border', 'danger', 'radius', 'font']
+  .map((token) => `--mango-av-${token}: inherit;`)
+  .join(' ');
 
-const styles = `
-  :host {
-    --mango-av-accent: #5b3fd6;
-    --mango-av-accent-contrast: #fff;
-    --mango-av-background: #fff;
-    --mango-av-surface: #f5f5f8;
-    --mango-av-text: #18181b;
-    --mango-av-muted: #62626a;
-    --mango-av-border: #d7d7de;
-    --mango-av-radius: .65rem;
-    --mango-av-font: ui-sans-serif, system-ui, sans-serif;
-    --mango-av-panel-width: 24rem;
-    --mango-av-player-aspect-ratio: 16 / 9;
-    --media-primary-color: var(--mango-av-accent-contrast);
-    --media-secondary-color: var(--mango-av-accent);
-    color: var(--mango-av-text);
-    display: block;
-    font-family: var(--mango-av-font);
+/*
+ * The player, its position, and the recording's transcript, chapters and
+ * annotations underneath it in tabs. The panels keep their size order: the
+ * player and tabs never shrink, and the active list scrolls on its own.
+ */
+const styles = `${componentTheme}${panelStyles}
+  .shell {
+    background: var(--mango-av-background);
+    border: 1px solid var(--mango-av-border);
+    border-radius: var(--mango-av-radius);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 20px;
   }
-  *, *::before, *::after { box-sizing: border-box; }
-  button, input, select { font: inherit; }
-  button, select { cursor: pointer; }
-  .shell { background: var(--mango-av-background); border: 1px solid var(--mango-av-border); border-radius: var(--mango-av-radius); overflow: clip; }
-  .header { padding: 1rem 1.1rem; }
   .header h2 { font-size: 1.15rem; margin: 0; }
   .header p { color: var(--mango-av-muted); margin: .35rem 0 0; }
-  .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, var(--mango-av-panel-width)); }
-  .player-column { align-self: start; background: #08080a; min-width: 0; position: relative; }
-  media-controller { display: block; width: 100%; }
-  media-controller:not([audio]) { aspect-ratio: var(--mango-av-player-aspect-ratio); }
-  video, hls-video { display: block; height: 100%; object-fit: contain; width: 100%; }
-  audio { width: 100%; }
-  media-control-bar { width: 100%; }
-  .audio-art { --mango-av-wave-edge-strength: 0%; --mango-av-wave-mid-strength: 0%; --mango-av-wave-rise: 8%; --mango-av-wave-strength: 0%; align-items: center; aspect-ratio: 16 / 7; background: linear-gradient(#09080d, #111019); color: white; display: flex; justify-content: center; overflow: hidden; padding: 2rem; position: relative; text-align: center; }
-  .audio-art.visualizer--pulse { background: radial-gradient(ellipse 140% 72% at 50% calc(100% + var(--mango-av-wave-rise)), color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 0%, color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-mid-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 40%, color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-edge-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 62%, transparent 78%), linear-gradient(#09080d, #111019); }
-  .audio-art-text { display: contents; }
-  .audio-art-visualizer-canvas { height: 100%; inset: 0; pointer-events: none; position: absolute; width: 100%; }
-  .audio-art img { height: 100%; inset: 0; object-fit: contain; position: absolute; width: 100%; }
-  .audio-art-title { font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; position: relative; z-index: 1; }
-  .audio-art-transcript { height: 100%; inset: 0; overflow: hidden; position: absolute; z-index: 1; }
-  .audio-art-cue { align-items: center; display: flex; flex-direction: column; font-size: clamp(.7rem, 1.3vw, .875rem); font-weight: 550; gap: .15rem; left: 12%; line-height: 1.35; position: absolute; right: 12%; top: 50%; transition: opacity 360ms ease, transform 480ms cubic-bezier(.22, 1, .36, 1); }
-  .audio-art-transcript.seeking .audio-art-cue { transition: none; }
-  .audio-art-cue.active { font-size: clamp(.78rem, 1.5vw, 1rem); font-weight: 650; }
-  .audio-art-cue > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-  .audio-art-speaker { font-size: .7em; letter-spacing: .04em; text-transform: uppercase; }
-  .player-toolbar { align-items: center; background: #151518; color: #fff; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; padding: .55rem .7rem; }
-  .player-toolbar button, .player-toolbar select { background: #29292e; border: 1px solid #44444a; border-radius: .35rem; color: white; padding: .4rem .55rem; }
-  .player-toolbar .group { align-items: center; display: flex; gap: .45rem; }
-  .search-markers { background: #242429; height: .45rem; position: relative; }
-  .search-marker { background: #ffe24a; border: 0; border-radius: 50%; height: .7rem; padding: 0; position: absolute; top: 50%; transform: translate(-50%, -50%); width: .7rem; }
-  .resume { align-items: center; background: #fff8d7; color: #312900; display: flex; gap: .5rem; justify-content: center; padding: .6rem; }
-  .resume button { background: var(--mango-av-accent); border: 0; border-radius: .35rem; color: var(--mango-av-accent-contrast); padding: .35rem .65rem; }
-  .panel { border-left: 1px solid var(--mango-av-border); display: flex; flex-direction: column; min-height: 22rem; min-width: 0; }
-  .tabs { background: var(--mango-av-surface); display: flex; gap: .1rem; overflow-x: auto; padding: .35rem; }
-  .tab { background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--mango-av-muted); padding: .55rem .6rem; white-space: nowrap; }
-  .tab[aria-selected=true] { border-color: var(--mango-av-accent); color: var(--mango-av-text); font-weight: 650; }
-  .panel-content { flex: 1; max-height: 34rem; overflow: auto; padding: .85rem; }
-  .empty { color: var(--mango-av-muted); font-style: italic; }
-  .chapter-list, .annotation-list, .cue-list, .file-list { list-style: none; margin: 0; padding: 0; }
-  .chapter-list .chapter-list { border-left: 1px solid var(--mango-av-border); margin-left: .8rem; padding-left: .55rem; }
-  .chapter { margin-block: .3rem; }
-  .chapter button, .annotation button, .cue button { background: transparent; border: 0; border-radius: .35rem; color: inherit; display: grid; gap: .15rem; padding: .5rem; text-align: left; width: 100%; }
-  .chapter button { border-radius: 0; }
-  .chapter button:hover, .annotation button:hover, .cue button:hover { background: var(--mango-av-surface); }
-  .chapter button.active, .annotation button.active, .cue button.active { background: color-mix(in srgb, var(--mango-av-accent) 14%, transparent); box-shadow: inset 3px 0 var(--mango-av-accent); }
-  .time { color: var(--mango-av-muted); font-size: .78rem; }
-  .panel-tools { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .75rem; }
-  .panel-tools input, .panel-tools select { border: 1px solid var(--mango-av-border); border-radius: .35rem; min-width: 0; padding: .45rem; }
-  .panel-tools input { flex: 1; }
-  .panel-tools a { align-content: center; color: var(--mango-av-accent); }
-  .cue mark { background: #ffe770; }
-  .speaker { font-weight: 700; }
-  .tags { display: flex; flex-wrap: wrap; gap: .25rem; }
-  .tag { background: var(--mango-av-surface); border-radius: 999px; font-size: .75rem; padding: .15rem .45rem; }
-  dl { margin: 0; }
+  .embedded { ${inheritedTokens} --mango-av-panel-background: transparent; --mango-av-panel-border: 0; --mango-av-panel-padding: 0; }
+  .position { font-size: 14px; margin: 0; }
+  .position span { color: var(--mango-av-muted); }
+  .tabs { background: var(--mango-av-surface); border-radius: 8px; display: flex; gap: 4px; overflow-x: auto; padding: 4px; }
+  .tab {
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--mango-av-muted);
+    flex: 1 0 auto;
+    font-size: 14px;
+    font-weight: 600;
+    height: 34px;
+    padding: 0 12px;
+  }
+  .tab[aria-selected=true] { background: var(--mango-av-background); color: var(--mango-av-text); }
+  .details { min-height: 200px; }
+  .details > [hidden] { display: none; }
+  .canvas-label { font-size: 1rem; margin: 0 0 .5rem; }
+  dl { font-size: 14px; margin: 0; }
   dt { font-weight: 700; margin-top: .75rem; }
   dd { color: var(--mango-av-muted); margin: .2rem 0 0; }
-  .file-list li { border-bottom: 1px solid var(--mango-av-border); padding: .55rem 0; }
+  .files { font-size: 14px; list-style: none; margin: 0; padding: 0; }
+  .files li { border-bottom: 1px solid var(--mango-av-border); padding: .55rem 0; }
+  .files small { color: var(--mango-av-muted); display: block; }
   a { color: var(--mango-av-accent); }
-  .error { background: #fff0f0; color: #8a1717; padding: 1rem; }
-  .sr-only { clip: rect(0,0,0,0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
-  @media (max-width: 760px) {
-    .layout { grid-template-columns: 1fr; }
-    .panel { border-left: 0; border-top: 1px solid var(--mango-av-border); }
-  }
 `;
 
-const metadataHtml = (entries: MetadataEntry[], ui: AVStrings): string => {
-  if (entries.length === 0) return `<p class="empty">${escapeHtml(ui.noMetadata)}</p>`;
-  return `<dl>${entries.map((entry) => `
-    <dt>${escapeHtml(entry.label)}</dt>
-    <dd>${entry.values.map((value) => escapeHtml(value.value)).join('<br>')}</dd>
-  `).join('')}</dl>`;
+const metadataHtml = (entries: MetadataEntry[]): string => `<dl>${entries.map((entry) => `
+  <dt>${escapeHtml(entry.label)}</dt>
+  <dd>${entry.values.map((value) => escapeHtml(value.value)).join('<br>')}</dd>
+`).join('')}</dl>`;
+
+const metadataPanelHtml = (manifest: AVManifest, canvas: AVCanvas, ui: AVStrings): string => {
+  const entries = [...manifest.metadata, ...canvas.metadata];
+  const statement = manifest.requiredStatement ? [manifest.requiredStatement] : [];
+  if (entries.length === 0 && statement.length === 0 && !manifest.rights) return `<p class="empty">${escapeHtml(ui.noMetadata)}</p>`;
+  return `<h3 class="canvas-label">${escapeHtml(canvas.label)}</h3>
+    ${metadataHtml([...entries, ...statement])}
+    ${manifest.rights ? `<p><strong>${escapeHtml(ui.rights)}:</strong> <a href="${escapeHtml(manifest.rights)}" target="_blank" rel="noreferrer">${escapeHtml(manifest.rights)}</a></p>` : ''}`;
 };
 
-const chapterHtml = (chapters: Chapter[], canvasId: string, ui: AVStrings, level = 1): string => {
-  if (chapters.length === 0 && level === 1) return `<p class="empty">${escapeHtml(ui.noChapters)}</p>`;
-  return `<ul class="chapter-list">${chapters.map((chapter) => {
-    const active = chapter.canvasId === canvasId;
-    const target = chapter.canvasId ? `data-canvas="${escapeHtml(chapter.canvasId)}"` : '';
-    const time = chapter.time ? `data-time="${chapter.time.start}"` : '';
-    return `<li class="chapter">
-      <button type="button" class="${active ? 'active' : ''}" ${target} ${time} ${chapter.canvasId ? '' : 'disabled'}>
-        <span>${escapeHtml(chapter.label)}</span>
-        ${chapter.time ? `<span class="time">${formatTime(chapter.time.start)}</span>` : ''}
-      </button>
-      ${chapterHtml(chapter.children, canvasId, ui, level + 1)}
-    </li>`;
-  }).join('')}</ul>`;
-};
-
-const highlight = (text: string, query: string): string => {
-  const escaped = escapeHtml(text);
-  if (!query) return escaped;
-  const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return escaped.replace(new RegExp(`(${safeQuery})`, 'gi'), '<mark>$1</mark>');
+const filesPanelHtml = (manifest: AVManifest, canvas: AVCanvas, ui: AVStrings): string => {
+  const files = [...manifest.rendering, ...canvas.rendering];
+  if (files.length === 0) return `<p class="empty">${escapeHtml(ui.noSupplementalFiles)}</p>`;
+  return `<ul class="files">${files.map((file) => `<li>
+    <a href="${escapeHtml(file.id)}" download="${escapeHtml(file.filename ?? '')}">${escapeHtml(file.label)}</a>
+    ${file.format ? `<small>${escapeHtml(file.format)}</small>` : ''}
+  </li>`).join('')}</ul>`;
 };
 
 export class MangoAVMediaElement extends HTMLElementBase {
@@ -168,54 +108,21 @@ export class MangoAVMediaElement extends HTMLElementBase {
   #root: ShadowRoot;
   #inputManifest: JsonObject | string | undefined;
   #config: AVPlayerConfig = {};
-  #activePanel: NonNullable<AVPlayerConfig['activePanel']> = 'chapters';
-  #transcriptCues: TranscriptCue[] = [];
-  #transcriptIndex = 0;
-  #transcriptQuery = '';
-  #resumeTime: number | undefined;
-  #loadingToken = 0;
-  #resolvedSourceUrl: string | undefined;
-  #sourceToken = 0;
-  #fallbackSourceUrl: string | undefined;
-  #visualizer = new AudioArtVisualizer();
+  #activePanel: Panel = 'transcript';
 
   constructor() {
     super();
     this.#root = this.attachShadow({ mode: 'open' });
     this.player = new AVPlayerController();
-    for (const type of eventTypes) {
+    for (const type of controllerEventTypes) {
       this.player.addEventListener(type, ((event: CustomEvent) => {
-        if (type === 'av-ready') {
-          if (this.player.source?.isHls) void ensureHlsElement();
-          this.#resetSourceLoad();
-          this.#resumeTime = this.player.getSavedPosition();
+        if (type === 'av-ready' || type === 'av-configchange') {
           this.#activePanel = this.player.config.activePanel;
           this.#render();
-          void this.#resolveSource();
-          void this.#loadActiveTranscript();
-        } else if (type === 'av-canvaschange' || type === 'av-sourcechange') {
-          if (this.player.source?.isHls) void ensureHlsElement();
-          this.#resetSourceLoad();
-          this.#transcriptCues = [];
-          this.#transcriptIndex = 0;
-          this.#render();
-          void this.#resolveSource();
-          void this.#loadActiveTranscript();
-        } else if (type === 'av-configchange') {
-          this.#resetSourceLoad();
-          this.#activePanel = this.player.config.activePanel;
-          void ensureMediaChrome(this.player.config.preferredLanguages[0]).then(() => {
-            this.#render();
-            void this.#resolveSource();
-          });
-        } else if (type === 'av-error') {
-          this.#render();
-        } else if (type === 'av-annotationschange') {
-          if (this.#activePanel === 'annotations') this.#renderPanelOnly();
-        } else if (type === 'av-timeupdate') {
-          this.#syncTimedContent();
-        } else if (type === 'av-seek') {
-          this.#syncTimedContent((event.detail as AVPlayerEventMap['av-seek']).to, true);
+        } else if (type === 'av-canvaschange') {
+          this.#renderDetails();
+        } else if (type === 'av-statechange') {
+          this.#renderPosition();
         }
         this.dispatchEvent(new CustomEvent(type, {
           detail: event.detail,
@@ -230,13 +137,13 @@ export class MangoAVMediaElement extends HTMLElementBase {
     return this.#inputManifest;
   }
 
-  get controller(): AVPlayerController {
-    return this.player;
-  }
-
   set manifest(value: JsonObject | string | undefined) {
     this.#inputManifest = value;
     if (this.isConnected && value !== undefined) void this.load(value);
+  }
+
+  get controller(): AVPlayerController {
+    return this.player;
   }
 
   get config(): AVPlayerConfig {
@@ -246,20 +153,16 @@ export class MangoAVMediaElement extends HTMLElementBase {
   set config(value: AVPlayerConfig) {
     this.#config = value;
     this.player.configure(value);
-    this.#activePanel = value.activePanel ?? this.player.config.activePanel;
-    if (this.isConnected) this.#render();
   }
 
   connectedCallback(): void {
     this.#readConfigAttribute();
-    void ensureMediaChrome(this.player.config.preferredLanguages[0]);
     this.#render();
     const source = this.#inputManifest ?? this.getAttribute('manifest-url') ?? undefined;
-    if (source !== undefined) void this.load(source);
+    if (source !== undefined && !this.player.manifest) void this.load(source);
   }
 
   disconnectedCallback(): void {
-    this.#visualizer.disconnect();
     this.player.destroy();
   }
 
@@ -269,10 +172,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
       this.#inputManifest = newValue;
       void this.load(newValue);
     }
-    if (name === 'config') {
-      this.#readConfigAttribute();
-      this.#render();
-    }
+    if (name === 'config') this.#readConfigAttribute();
   }
 
   async load(input: JsonObject | string): Promise<AVManifest> {
@@ -308,368 +208,101 @@ export class MangoAVMediaElement extends HTMLElementBase {
     }
   }
 
+  #panels(ui: AVStrings): Array<[Panel, string]> {
+    const panels = this.player.config.panels;
+    return ([
+      panels.transcript ? ['transcript', ui.transcript] : undefined,
+      panels.chapters ? ['chapters', ui.chapters] : undefined,
+      panels.annotations ? ['annotations', ui.annotations] : undefined,
+      panels.metadata ? ['metadata', ui.metadata] : undefined,
+      panels.supplementalFiles ? ['files', ui.files] : undefined,
+    ] as const).filter((value): value is [Panel, string] => Boolean(value));
+  }
+
+  /* Rebuilt for a new Manifest or configuration; the components inside follow the controller from there. */
   #render(): void {
-    this.#visualizer.disconnect();
-    const state = this.player.state;
-    const manifest = state.manifest;
-    const canvas = this.player.canvas;
-    const source = this.player.source;
+    const manifest = this.player.manifest;
     const ui = resolveStrings(this.player.config.strings);
+    const panels = this.#panels(ui);
+    if (!panels.some(([id]) => id === this.#activePanel) && this.#activePanel !== 'none') this.#activePanel = panels[0]?.[0] ?? 'none';
+    const showPanels = this.#activePanel !== 'none' && panels.length > 0;
+    const hiddenHeading = '<span slot="heading" hidden></span>';
+    const tag = tags();
+    const captions = this.player.config.audioArt.captions;
     this.#root.innerHTML = `<style>${styles}</style><div class="shell">
       <slot name="header">
         ${manifest ? `<header class="header"><h2>${escapeHtml(manifest.label)}</h2>${manifest.summary ? `<p>${escapeHtml(manifest.summary)}</p>` : ''}</header>` : ''}
       </slot>
-      ${state.status === 'error' ? `<div class="error" role="alert">${escapeHtml(state.error?.message ?? ui.unableToLoadPlayer)}</div>` : ''}
-      ${state.status === 'loading' ? `<p class="header" role="status">${escapeHtml(ui.loadingManifest)}</p>` : ''}
-      ${manifest && canvas ? this.#renderReady(manifest, canvas, source?.kind ?? 'video') : ''}
+      <slot name="before-player"></slot>
+      <${tag.player} class="embedded" data-component>${captions ? `<${tag.captions} class="embedded" data-component slot="stage" audio-only ${captions === 'line' ? 'line' : ''}></${tag.captions}>` : ''}</${tag.player}>
+      <slot name="after-player"></slot>
+      ${manifest ? '<p class="position" aria-live="off"></p>' : ''}
+      ${manifest && showPanels ? `
+        <div class="tabs" role="tablist" aria-label="${escapeHtml(ui.mediaInformation)}">
+          ${panels.map(([id, text]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-controls="panel-${id}" data-panel="${id}" aria-selected="${this.#activePanel === id}">${escapeHtml(text)}</button>`).join('')}
+        </div>
+        <div class="details">
+          ${panels.map(([id]) => {
+            const attributes = `id="panel-${id}" role="tabpanel" aria-labelledby="tab-${id}" data-panel-body="${id}" ${this.#activePanel === id ? '' : 'hidden'}`;
+            switch (id) {
+              case 'transcript':
+              case 'chapters':
+              case 'annotations': return `<${tag[id]} class="embedded" data-component ${attributes}>${hiddenHeading}</${tag[id]}>`;
+              default: return `<div ${attributes}></div>`;
+            }
+          }).join('')}
+        </div>` : ''}
     </div>`;
-    this.#bindInteractions();
-    const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-    if (media && this.#resolvedSourceUrl) this.#activateMedia(media, this.#resolvedSourceUrl);
-    this.#syncTimedContent();
+    const player = this.#root.querySelector<MangoAVPlayerElement>(tag.player);
+    if (player) player.forwardEvents = false;
+    this.#root.querySelectorAll<AVControllerElement>('[data-component]').forEach((element) => { element.controller = this.player; });
+    this.#root.querySelectorAll<HTMLElement>('[data-panel]').forEach((tab) => tab.addEventListener('click', () => this.#selectPanel(tab.dataset.panel as Panel)));
+    this.#root.querySelector('.tabs')?.addEventListener('keydown', (event) => this.#moveTab(event as KeyboardEvent));
+    this.#renderDetails();
+    this.#renderPosition();
   }
 
-  #renderReady(manifest: AVManifest, canvas: AVCanvas, kind: 'audio' | 'video'): string {
-    const source = this.player.source;
-    const panels = this.player.config.panels;
-    const controls = this.player.config.controls;
-    const ui = resolveStrings(this.player.config.strings);
-    const panelTabs = [
-      panels.chapters ? ['chapters', ui.chapters] : undefined,
-      panels.transcript ? ['transcript', ui.transcript] : undefined,
-      panels.annotations ? ['annotations', ui.annotations] : undefined,
-      panels.metadata ? ['metadata', ui.metadata] : undefined,
-      panels.supplementalFiles ? ['files', ui.files] : undefined,
-    ].filter((value): value is [string, string] => Boolean(value));
-    const showPanel = this.#activePanel !== 'none' && panelTabs.length > 0;
-    const showSourceSelector = controls.sourceSelector && canvas.sources.length > 1;
-    const showDownload = controls.download && canvas.rendering.length > 0;
-    const showPlayerToolbar = controls.navigation || controls.autoAdvance || showSourceSelector || showDownload;
-    const visualizerMode = resolveAudioVisualizerMode(this.player.config.audioArt.visualizer);
-    return `
-      ${this.#resumeTime !== undefined ? `<div class="resume">${escapeHtml(formatString(ui.resumePrompt, { time: formatTime(this.#resumeTime) }))} <button type="button" data-action="resume">${escapeHtml(ui.resume)}</button><button type="button" data-action="dismiss-resume">${escapeHtml(ui.startOver)}</button></div>` : ''}
-      <div class="layout" ${showPanel ? '' : 'style="grid-template-columns: 1fr"'}>
-        <section class="player-column" aria-label="${escapeHtml(ui.mediaPlayer)}">
-          <slot name="before-player"></slot>
-          <media-controller ${kind === 'audio' ? 'audio' : ''} ${this.#mediaChromeLanguage()}>
-            ${kind === 'audio' ? `<div class="audio-art ${visualizerMode ? `visualizer visualizer--${visualizerMode}` : ''}">${audioArtContentHtml(canvas.label, this.player.config.audioArt.title ?? '', this.#transcriptCues, Boolean(this.player.config.audioArt.transcript), visualizerMode)}</div>` : ''}
-            ${source ? this.#mediaHtml(canvas, source.kind) : `<div class="audio-art"><span>${escapeHtml(ui.noPlayableMedia)}</span></div>`}
-            <slot name="player-overlay"></slot>
-            <slot name="controls">
-              <media-control-bar>
-                <media-play-button></media-play-button>
-                ${controls.seek ? `<media-seek-backward-button seekoffset="${controls.skipSeconds ?? 10}"></media-seek-backward-button><media-seek-forward-button seekoffset="${controls.skipSeconds ?? 10}"></media-seek-forward-button>` : ''}
-                <media-time-display showduration></media-time-display>
-                ${controls.seek ? '<media-time-range></media-time-range>' : ''}
-                ${controls.volume ? '<media-mute-button></media-mute-button><media-volume-range></media-volume-range>' : ''}
-                ${controls.captions && canvas.tracks.length > 0 ? '<media-captions-menu-button></media-captions-menu-button>' : ''}
-                ${controls.playbackRate ? '<media-playback-rate-menu-button></media-playback-rate-menu-button>' : ''}
-                ${controls.pictureInPicture && kind === 'video' ? '<media-pip-button></media-pip-button>' : ''}
-                ${controls.fullscreen && kind === 'video' ? '<media-fullscreen-button></media-fullscreen-button>' : ''}
-              </media-control-bar>
-              ${controls.captions && canvas.tracks.length > 0 ? '<media-captions-menu hidden></media-captions-menu>' : ''}
-              ${controls.playbackRate ? `<media-playback-rate-menu rates="${this.player.config.playbackRates.join(' ')}" hidden></media-playback-rate-menu>` : ''}
-            </slot>
-          </media-controller>
-          ${this.#searchMarkersHtml()}
-          ${showPlayerToolbar ? `<div class="player-toolbar">
-            ${controls.navigation ? `<div class="group">
-              <button type="button" data-action="previous" ${canvas.index === 0 ? 'disabled' : ''} aria-label="${escapeHtml(ui.previousSection)}">← ${escapeHtml(ui.previous)}</button>
-              <button type="button" data-action="next" ${canvas.index === manifest.canvases.length - 1 && !this.player.state.repeat ? 'disabled' : ''} aria-label="${escapeHtml(ui.nextSection)}">${escapeHtml(ui.next)} →</button>
-            </div>` : ''}
-            ${showSourceSelector || showDownload || controls.autoAdvance ? `<div class="group">
-              ${showSourceSelector ? `<label><span class="sr-only">${escapeHtml(ui.mediaSource)}</span><select data-action="source">${canvas.sources.map((item, index) => `<option value="${index}" ${index === this.player.state.sourceIndex ? 'selected' : ''}>${escapeHtml(item.label ?? item.format ?? formatString(ui.sourceNumber, { number: index + 1 }))}</option>`).join('')}</select></label>` : ''}
-              ${showDownload ? `<label><span class="sr-only">${escapeHtml(ui.downloadMediaFile)}</span><select data-action="download"><option value="">${escapeHtml(ui.download)}…</option>${canvas.rendering.map((file) => `<option value="${escapeHtml(file.id)}" data-filename="${escapeHtml(file.filename ?? '')}">${escapeHtml(file.label)}</option>`).join('')}</select></label>` : ''}
-              ${controls.autoAdvance ? `<label><input type="checkbox" data-action="auto-advance" ${this.player.state.autoAdvance ? 'checked' : ''}> ${escapeHtml(ui.autoAdvance)}</label>` : ''}
-            </div>` : ''}
-          </div>` : ''}
-          <slot name="after-player"></slot>
-        </section>
-        ${showPanel ? `<aside class="panel">
-          <nav class="tabs" role="tablist" aria-label="${escapeHtml(ui.mediaInformation)}">${panelTabs.map(([id, tabLabel]) => `<button class="tab" type="button" role="tab" data-panel="${id}" aria-selected="${this.#activePanel === id}">${escapeHtml(tabLabel)}</button>`).join('')}</nav>
-          <div class="panel-content" role="tabpanel">${this.#panelHtml(manifest, canvas)}</div>
-        </aside>` : ''}
-      </div>`;
+  #selectPanel(panel: Panel): void {
+    this.#activePanel = panel;
+    this.#root.querySelectorAll<HTMLElement>('[data-panel]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.panel === panel)));
+    this.#root.querySelectorAll<HTMLElement>('[data-panel-body]').forEach((body) => { body.hidden = body.dataset.panelBody !== panel; });
   }
 
-  #mediaHtml(canvas: AVCanvas, kind: 'audio' | 'video'): string {
-    const source = this.player.source;
-    if (!source) return '';
-    const tag = source.isHls ? 'hls-video' : kind;
-    const attributes = [
-      'slot="media"',
-      `preload="${this.player.config.preload}"`,
-      this.player.config.crossorigin ? `crossorigin="${this.player.config.crossorigin}"` : '',
-      kind === 'video' && canvas.poster ? `poster="${escapeHtml(canvas.poster)}"` : '',
-      `aria-label="${escapeHtml(canvas.label)}"`,
-      `data-canvasindex="${canvas.index}"`,
-    ].filter(Boolean).join(' ');
-    const tracks = canvas.tracks.map((track) => `<track src="${escapeHtml(track.src)}" kind="${track.kind}" label="${escapeHtml(track.label)}" ${track.language ? `srclang="${escapeHtml(track.language)}"` : ''} ${track.default ? 'default' : ''}>`).join('');
-    return `<${tag} ${attributes}>${tracks}</${tag}>`;
+  #moveTab(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    const tabs = [...this.#root.querySelectorAll<HTMLElement>('[data-panel]')];
+    const index = tabs.findIndex((tab) => tab.dataset.panel === this.#activePanel);
+    const next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+    if (!next) return;
+    this.#selectPanel(next.dataset.panel as Panel);
+    next.focus();
   }
 
-  #mediaChromeLanguage(): string {
-    const language = this.player.config.preferredLanguages.find((value) => value !== 'none');
-    return language ? `lang="${escapeHtml(language)}"` : '';
-  }
-
-  #panelHtml(manifest: AVManifest, canvas: AVCanvas): string {
-    const ui = resolveStrings(this.player.config.strings);
-    switch (this.#activePanel) {
-      case 'chapters':
-        return chapterHtml(manifest.chapters, canvas.id, ui);
-      case 'transcript':
-        return this.#transcriptHtml(canvas);
-      case 'annotations':
-        return this.#annotationsHtml(canvas.annotations);
-      case 'metadata':
-        return `<h3>${escapeHtml(canvas.label)}</h3>${metadataHtml([...manifest.metadata, ...canvas.metadata], ui)}${manifest.requiredStatement ? metadataHtml([manifest.requiredStatement], ui) : ''}${manifest.rights ? `<p><strong>${escapeHtml(ui.rights)}:</strong> <a href="${escapeHtml(manifest.rights)}" target="_blank" rel="noreferrer">${escapeHtml(manifest.rights)}</a></p>` : ''}`;
-      case 'files': {
-        const files = [...manifest.rendering, ...canvas.rendering];
-        return files.length > 0 ? `<ul class="file-list">${files.map((file) => `<li><a href="${escapeHtml(file.id)}" download="${escapeHtml(file.filename ?? '')}">${escapeHtml(file.label)}</a>${file.format ? `<div class="time">${escapeHtml(file.format)}</div>` : ''}</li>`).join('')}</ul>` : `<p class="empty">${escapeHtml(ui.noSupplementalFiles)}</p>`;
-      }
-      default:
-        return '';
-    }
-  }
-
-  #transcriptHtml(canvas: AVCanvas): string {
-    const ui = resolveStrings(this.player.config.strings);
-    if (canvas.transcripts.length === 0) return `<p class="empty">${escapeHtml(ui.noTranscript)}</p>`;
-    const resource = canvas.transcripts[this.#transcriptIndex];
-    const query = this.#transcriptQuery.trim();
-    const visible = query
-      ? this.#transcriptCues.filter((cue) => cue.text.toLowerCase().includes(query.toLowerCase()))
-      : this.#transcriptCues;
-    return `<div class="panel-tools">
-      ${canvas.transcripts.length > 1 ? `<select data-action="transcript" aria-label="${escapeHtml(ui.transcript)}">${canvas.transcripts.map((item, index) => `<option value="${index}" ${index === this.#transcriptIndex ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}</select>` : ''}
-      ${this.player.config.transcript.search ? `<input type="search" data-action="transcript-search" value="${escapeHtml(this.#transcriptQuery)}" placeholder="${escapeHtml(ui.searchTranscript)}" aria-label="${escapeHtml(ui.searchTranscript)}">` : ''}
-      ${this.player.config.transcript.download && resource?.src ? `<a href="${escapeHtml(resource.src)}" download>${escapeHtml(ui.download)}</a>` : ''}
-    </div>
-    ${this.#transcriptCues.length === 0 ? `<p class="empty">${escapeHtml(ui.loadingTranscript)}</p>` : `<ol class="cue-list">${visible.map((cue) => `<li class="cue" data-cue-id="${escapeHtml(cue.id)}" ${cue.start !== undefined ? `data-start="${cue.start}" data-end="${cue.end ?? cue.start}"` : ''}><button type="button" ${cue.start === undefined ? 'disabled' : ''}>${cue.start !== undefined ? `<span class="time">${formatTime(cue.start)}</span>` : ''}${cue.speaker ? `<span class="speaker">${escapeHtml(cue.speaker)}</span>` : ''}<span>${highlight(cue.text, query)}</span></button></li>`).join('')}</ol>`}`;
-  }
-
-  #annotationsHtml(annotations: AVAnnotation[]): string {
-    const ui = resolveStrings(this.player.config.strings);
-    if (annotations.length === 0) return `<p class="empty">${escapeHtml(ui.noAnnotations)}</p>`;
-    return `<ol class="annotation-list">${annotations.map((annotation) => `<li class="annotation" data-start="${annotation.time?.start ?? ''}" data-end="${annotation.time?.end ?? annotation.time?.start ?? ''}"><button type="button" ${annotation.time ? '' : 'disabled'}>${annotation.time ? `<span class="time">${formatTime(annotation.time.start)}</span>` : ''}<span>${escapeHtml(annotation.text)}</span>${annotation.tags.length > 0 ? `<span class="tags">${annotation.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</span>` : ''}</button></li>`).join('')}</ol>`;
-  }
-
-  #searchMarkersHtml(): string {
-    const ui = resolveStrings(this.player.config.strings);
-    const query = this.#transcriptQuery.trim().toLowerCase();
-    const duration = this.player.state.duration || this.player.canvas?.duration || 0;
-    if (!query || !this.player.config.transcript.showSearchMarkers || duration <= 0) return '';
-    const matches = this.#transcriptCues.filter((cue) => cue.start !== undefined && cue.text.toLowerCase().includes(query));
-    if (matches.length === 0) return '';
-    return `<div class="search-markers" aria-label="${escapeHtml(ui.transcriptSearchMatches)}">${matches.map((cue) => `<button type="button" class="search-marker" data-search-time="${cue.start}" style="left:${Math.min(100, Math.max(0, ((cue.start ?? 0) / duration) * 100))}%" aria-label="${escapeHtml(formatString(ui.searchMatchAt, { time: formatTime(cue.start ?? 0) }))}"></button>`).join('')}</div>`;
-  }
-
-  #bindInteractions(): void {
-    this.#root.querySelectorAll<HTMLElement>('[data-panel]').forEach((button) => button.addEventListener('click', () => {
-      this.#activePanel = button.dataset.panel as NonNullable<AVPlayerConfig['activePanel']>;
-      this.#renderPanelOnly();
-      if (this.#activePanel === 'transcript') void this.#loadActiveTranscript();
-    }));
-    this.#root.querySelector<HTMLElement>('[data-action=previous]')?.addEventListener('click', () => this.player.previous({ autoplay: this.player.state.status === 'playing' }));
-    this.#root.querySelector<HTMLElement>('[data-action=next]')?.addEventListener('click', () => this.player.next({ autoplay: this.player.state.status === 'playing' }));
-    this.#root.querySelector<HTMLSelectElement>('[data-action=source]')?.addEventListener('change', (event) => this.player.selectSource(Number((event.target as HTMLSelectElement).value)));
-    this.#root.querySelector<HTMLSelectElement>('[data-action=download]')?.addEventListener('change', (event) => {
-      const select = event.target as HTMLSelectElement;
-      if (!select.value) return;
-      const anchor = document.createElement('a');
-      anchor.href = select.value;
-      anchor.download = select.selectedOptions[0]?.dataset.filename ?? '';
-      anchor.click();
-      select.value = '';
-    });
-    this.#root.querySelector<HTMLInputElement>('[data-action=auto-advance]')?.addEventListener('change', (event) => this.player.setAutoAdvance((event.target as HTMLInputElement).checked));
-    this.#root.querySelector<HTMLElement>('[data-action=resume]')?.addEventListener('click', () => {
-      if (this.#resumeTime !== undefined) this.player.seekTo(this.#resumeTime);
-      this.#resumeTime = undefined;
-      this.#render();
-    });
-    this.#root.querySelector<HTMLElement>('[data-action=dismiss-resume]')?.addEventListener('click', () => {
-      this.#resumeTime = undefined;
-      this.#render();
-    });
-    this.#bindPanelInteractions();
-  }
-
-  #bindPanelInteractions(): void {
-    this.#root.querySelectorAll<HTMLElement>('[data-canvas]').forEach((button) => button.addEventListener('click', () => {
-      const canvasId = button.dataset.canvas;
-      if (canvasId) this.player.selectCanvas(canvasId, { time: Number(button.dataset.time ?? 0), autoplay: true });
-    }));
-    this.#root.querySelector<HTMLSelectElement>('[data-action=transcript]')?.addEventListener('change', (event) => {
-      this.#transcriptIndex = Number((event.target as HTMLSelectElement).value);
-      this.#transcriptCues = [];
-      this.#renderPanelOnly();
-      void this.#loadActiveTranscript();
-    });
-    this.#root.querySelector<HTMLInputElement>('[data-action=transcript-search]')?.addEventListener('input', (event) => {
-      this.#transcriptQuery = (event.target as HTMLInputElement).value;
-      const selection = (event.target as HTMLInputElement).selectionStart;
-      this.#renderPanelOnly();
-      const input = this.#root.querySelector<HTMLInputElement>('[data-action=transcript-search]');
-      input?.focus();
-      if (selection !== null) input?.setSelectionRange(selection, selection);
-    });
-    this.#root.querySelectorAll<HTMLElement>('.cue[data-start] button, .annotation[data-start] button').forEach((button) => button.addEventListener('click', () => {
-      const row = button.parentElement;
-      const start = Number(row?.dataset.start);
-      if (Number.isFinite(start)) {
-        this.player.seekTo(start);
-        playFromInteraction(this.player, this);
-      }
-    }));
-    this.#root.querySelectorAll<HTMLElement>('[data-search-time]').forEach((button) => button.addEventListener('click', () => {
-      const time = Number(button.dataset.searchTime);
-      if (Number.isFinite(time)) this.player.seekTo(time);
-    }));
-  }
-
-  #renderPanelOnly(): void {
+  #renderDetails(): void {
     const manifest = this.player.manifest;
     const canvas = this.player.canvas;
-    if (!manifest || !canvas) return;
-    this.#root.querySelectorAll<HTMLElement>('[data-panel]').forEach((tab) => {
-      tab.setAttribute('aria-selected', String(tab.dataset.panel === this.#activePanel));
-    });
-    const content = this.#root.querySelector<HTMLElement>('.panel-content');
-    if (content) content.innerHTML = this.#panelHtml(manifest, canvas);
-    this.#root.querySelector('.search-markers')?.remove();
-    const toolbar = this.#root.querySelector('.player-toolbar');
-    const markers = this.#searchMarkersHtml();
-    if (toolbar && markers) toolbar.insertAdjacentHTML('beforebegin', markers);
-    this.#bindPanelInteractions();
+    const ui = resolveStrings(this.player.config.strings);
+    const metadata = this.#root.querySelector<HTMLElement>('[data-panel-body=metadata]');
+    const files = this.#root.querySelector<HTMLElement>('[data-panel-body=files]');
+    if (metadata) metadata.innerHTML = manifest && canvas ? metadataPanelHtml(manifest, canvas, ui) : '';
+    if (files) files.innerHTML = manifest && canvas ? filesPanelHtml(manifest, canvas, ui) : '';
   }
 
-  async #loadActiveTranscript(): Promise<void> {
-    const resource = this.player.canvas?.transcripts[this.#transcriptIndex];
-    if (!resource) return;
-    const token = ++this.#loadingToken;
-    try {
-      const transcriptOptions: Parameters<typeof loadTranscript>[1] = {};
-      if (this.player.config.fetch) transcriptOptions.fetch = this.player.config.fetch;
-      if (this.player.config.requestInit) transcriptOptions.requestInit = this.player.config.requestInit;
-      if (this.player.config.transcript.showNotes !== undefined) transcriptOptions.showNotes = this.player.config.transcript.showNotes;
-      if (this.player.config.transcript.showMetadata !== undefined) transcriptOptions.showMetadata = this.player.config.transcript.showMetadata;
-      const cues = await loadTranscript(resource, transcriptOptions);
-      if (token !== this.#loadingToken) return;
-      this.#transcriptCues = cues;
-      this.#renderAudioArt();
-      if (this.#activePanel === 'transcript') this.#renderPanelOnly();
-    } catch (cause) {
-      if (token !== this.#loadingToken) return;
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      this.dispatchEvent(new CustomEvent('av-error', { detail: { error }, bubbles: true, composed: true }));
-      this.#transcriptCues = [];
-      if (this.#activePanel === 'transcript') this.#renderPanelOnly();
-    }
-  }
-
-  async #resolveSource(): Promise<void> {
-    const token = ++this.#sourceToken;
-    try {
-      const sourceUrl = await this.player.resolvedSourceUrl();
-      if (token !== this.#sourceToken || !sourceUrl) return;
-      this.#resolvedSourceUrl = sourceUrl;
-      const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-      if (media) this.#activateMedia(media, sourceUrl);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      this.dispatchEvent(new CustomEvent('av-error', { detail: { error }, bubbles: true, composed: true }));
-    }
-  }
-
-  #activateMedia(media: HTMLMediaElement, sourceUrl: string): void {
-    const mode = resolveAudioVisualizerMode(this.player.config.audioArt.visualizer);
-    const policy = resolveAudioMediaPolicy(
-      sourceUrl,
-      this.player.config.crossorigin,
-      this.player.crossoriginExplicit,
-      media instanceof HTMLAudioElement ? mode : undefined,
-      this.#fallbackSourceUrl === sourceUrl,
-    );
-    if (media instanceof HTMLAudioElement && policy.implicitCors) {
-      media.addEventListener('error', (event) => {
-        if (this.#fallbackSourceUrl === sourceUrl) return;
-        event.stopImmediatePropagation();
-        this.#fallbackToOrdinaryAudio(media, sourceUrl);
-      }, { once: true });
-    }
-    if (media instanceof HTMLAudioElement && mode && policy.visualize) {
-      const connect = () => {
-        const art = this.#root.querySelector<HTMLElement>('.audio-art.visualizer');
-        if (art && media.isConnected) this.#visualizer.connect(media, art, mode);
-      };
-      media.addEventListener('loadedmetadata', connect, { once: true });
-      if (media.readyState >= HTMLMediaElement.HAVE_METADATA) queueMicrotask(connect);
-    }
-    this.player.attachMedia(media);
-    applyMediaSource(media, sourceUrl, policy.crossOrigin);
-  }
-
-  #fallbackToOrdinaryAudio(failed: HTMLAudioElement, sourceUrl: string): void {
-    this.#fallbackSourceUrl = sourceUrl;
-    this.#visualizer.disconnect();
-    const requestedTime = this.player.state.currentTime;
-    const shouldPlay = this.player.state.status === 'playing' || !failed.paused;
-    const replacement = failed.cloneNode(true) as HTMLAudioElement;
-    replacement.removeAttribute('src');
-    replacement.removeAttribute('crossorigin');
-    replacement.volume = failed.volume;
-    replacement.muted = failed.muted;
-    replacement.playbackRate = failed.playbackRate;
-    const hadFocus = this.#root.activeElement === failed;
-    failed.replaceWith(replacement);
-    this.player.attachMedia(replacement);
-    this.player.seekTo(requestedTime);
-    if (hadFocus) replacement.focus();
-    this.#root.querySelector<HTMLElement>('.audio-art')?.classList.remove('visualizer');
-    applyMediaSource(replacement, sourceUrl);
-    if (shouldPlay) replacement.addEventListener('loadedmetadata', () => void replacement.play().catch(() => undefined), { once: true });
-    this.player.dispatchEvent(new CustomEvent('av-visualizerfallback', {
-      detail: { canvasId: this.player.canvas?.id ?? '', sourceUrl, reason: 'cors' },
-    }));
-  }
-
-  #resetSourceLoad(): void {
-    this.#sourceToken += 1;
-    this.#resolvedSourceUrl = undefined;
-    this.#fallbackSourceUrl = undefined;
-    this.#visualizer.disconnect();
-  }
-
-  #syncTimedContent(time = this.player.state.currentTime, instant = false): void {
-    syncAudioArtTranscript(this.#root, time, instant);
-    const rows = this.#root.querySelectorAll<HTMLElement>('[data-start][data-end]');
-    let active: HTMLElement | undefined;
-    rows.forEach((row) => {
-      const start = Number(row.dataset.start);
-      const end = Number(row.dataset.end);
-      const isActive = Number.isFinite(start) && time >= start && (!Number.isFinite(end) || time < end);
-      row.querySelector('button')?.classList.toggle('active', isActive);
-      if (isActive) active = row;
-    });
-    if (active && this.player.config.transcript.autoScroll) {
-      active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-  }
-
-  #renderAudioArt(): void {
-    const art = this.#root.querySelector<HTMLElement>('.audio-art');
-    const canvas = this.player.canvas;
-    if (!art || !canvas || this.player.source?.kind !== 'audio') return;
-    const text = art.querySelector<HTMLElement>('.audio-art-text');
-    if (text) text.innerHTML = audioArtTranscriptHtml(canvas.label, this.player.config.audioArt.title ?? '', this.#transcriptCues, Boolean(this.player.config.audioArt.transcript));
-    syncAudioArtTranscript(art, this.player.state.currentTime);
+  #renderPosition(): void {
+    const position = this.#root.querySelector<HTMLElement>('.position');
+    if (!position) return;
+    const ui = resolveStrings(this.player.config.strings);
+    const state = this.player.state;
+    position.innerHTML = `${escapeHtml(ui.position)} <strong>${formatTime(state.currentTime)}</strong> <span>/ ${formatTime(state.duration)}</span>`;
   }
 }
 
 export const defineMangoAVMedia = (tagName = 'mango-av-media'): typeof MangoAVMediaElement => {
-  registerVisualizerProperties();
+  defineMangoAVPlayer();
+  defineMangoAVChapters();
+  defineMangoAVTranscript();
+  defineMangoAVAnnotations();
+  defineMangoAVCaptions();
   if (typeof customElements === 'undefined') return MangoAVMediaElement;
   if (!customElements.get(tagName)) customElements.define(tagName, MangoAVMediaElement);
   return MangoAVMediaElement;

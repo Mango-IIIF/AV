@@ -1,56 +1,110 @@
 import { AVControllerElement } from './controller-element';
 import { componentTheme } from './component-styles';
-import { ensureMediaChrome } from './media-chrome';
-import { AudioArtVisualizer, audioArtContentHtml, audioArtTranscriptHtml, resolveAudioVisualizerMode, syncAudioArtTranscript, registerVisualizerProperties } from './audio-art';
-import { loadTranscript } from '../transcript';
-import type { AVCanvas, AVManifest, AVPlayerConfig, AVPlayerEventMap, JsonObject, MediaSource, TranscriptCue } from '../types';
+import { rampManifest } from './ramp-manifest';
+import type { RampHandle } from './ramp';
+import type { AVCanvas, AVManifest, AVPlayerConfig, AVPlayerEventMap, JsonObject, MediaSource } from '../types';
 import { escapeHtml, formatString, resolveStrings } from '../utils';
-import { applyMediaSource, resolveAudioMediaPolicy } from './media-policy';
 
-let hlsElementRegistration: Promise<unknown> | undefined;
-const ensureHlsElement = (): Promise<unknown> => {
-  hlsElementRegistration ??= import('hls-video-element');
-  return hlsElementRegistration;
+type RampModule = typeof import('./ramp');
+let rampModule: Promise<RampModule> | undefined;
+const loadRamp = (): Promise<RampModule> => {
+  rampModule ??= import('./ramp');
+  return rampModule;
 };
 
 const styles = `${componentTheme}
   :host { --mango-av-player-aspect-ratio: 16 / 9; }
-  .player { background: #08080a; border-radius: var(--mango-av-radius); color: white; overflow: clip; position: relative; }
-  media-controller { display: block; width: 100%; }
-  media-controller:not([audio]) { aspect-ratio: var(--mango-av-player-aspect-ratio); }
-  video, hls-video { display: block; height: 100%; object-fit: contain; width: 100%; }
-  audio { width: 100%; }
-  media-control-bar { width: 100%; }
-  .audio-art { --mango-av-wave-edge-strength: 0%; --mango-av-wave-mid-strength: 0%; --mango-av-wave-rise: 8%; --mango-av-wave-strength: 0%; align-items: center; aspect-ratio: 16 / 7; background: linear-gradient(#09080d, #111019); display: flex; justify-content: center; overflow: hidden; padding: 2rem; position: relative; text-align: center; }
-  .audio-art.visualizer--pulse { background: radial-gradient(ellipse 140% 72% at 50% calc(100% + var(--mango-av-wave-rise)), color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 0%, color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-mid-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 40%, color-mix(in srgb, var(--mango-av-visualizer-color, var(--mango-av-accent)) clamp(0%, calc(var(--mango-av-wave-edge-strength) * var(--mango-av-visualizer-intensity, 1)), 100%), transparent) 62%, transparent 78%), linear-gradient(#09080d, #111019); }
-  .audio-art-text { display: contents; }
-  .audio-art-visualizer-canvas { height: 100%; inset: 0; pointer-events: none; position: absolute; width: 100%; }
-  .audio-art-title { font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; position: relative; z-index: 1; }
-  .audio-art-transcript { height: 100%; inset: 0; overflow: hidden; position: absolute; z-index: 1; }
-  .audio-art-cue { align-items: center; display: flex; flex-direction: column; font-size: clamp(.7rem, 1.3vw, .875rem); font-weight: 550; gap: .15rem; left: 12%; line-height: 1.35; position: absolute; right: 12%; top: 50%; transition: opacity 360ms ease, transform 480ms cubic-bezier(.22, 1, .36, 1); }
-  .audio-art-transcript.seeking .audio-art-cue { transition: none; }
-  .audio-art-cue.active { font-size: clamp(.78rem, 1.5vw, 1rem); font-weight: 650; }
-  .audio-art-cue > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-  .audio-art-speaker { font-size: .7em; letter-spacing: .04em; text-transform: uppercase; }
-  .toolbar { align-items: center; background: #151518; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; padding: .55rem .7rem; }
-  .toolbar button, .toolbar select { background: #29292e; border: 1px solid #44444a; border-radius: .35rem; color: white; padding: .4rem .55rem; }
-  .group { align-items: center; display: flex; gap: .45rem; }
-  .error { background: #fff0f0; color: #8a1717; padding: 1rem; }
+  .player { container-type: inline-size; display: flex; flex-direction: column; gap: 12px; }
+  .stage { background: #000; border-radius: var(--mango-av-radius); overflow: hidden; width: 100%; }
+  .player[data-kind='audio'] .stage { background: var(--mango-av-surface); }
+  /*
+   * The stage slot holds content shown with the media, such as captions: in the
+   * audio card above the controls, or over the foot of a video, clear of its
+   * controls and letting clicks through to the player.
+   */
+  .player[data-kind='video'] .stage { position: relative; }
+  .player[data-kind='video'] .stage-slot { bottom: 44px; left: 0; pointer-events: none; position: absolute; right: 0; z-index: 2; }
+  .player[data-kind='video'] slot[name=stage]::slotted(*) {
+    --mango-av-captions-background: rgb(0 0 0 / .72);
+    --mango-av-captions-color: #fff;
+    --mango-av-captions-padding: 0 16px;
+  }
+  .cover { align-items: center; display: flex; gap: 16px; padding: 16px; }
+  .cover img { border-radius: 8px; height: 96px; object-fit: cover; width: 96px; }
+  .cover h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 22px; font-weight: 400; margin: 4px 0 0; }
+  .eyebrow { color: var(--mango-av-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .status { color: var(--mango-av-muted); font-size: 14px; margin: 0; padding: 16px; }
+  .error { color: var(--mango-av-danger); font-size: 14px; margin: 0; padding: 16px; }
+  .toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+  .group { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; font-size: 14px; }
+  .toolbar button, .toolbar select {
+    background: var(--mango-av-surface);
+    border: 1px solid var(--mango-av-border);
+    border-radius: 6px;
+    color: inherit;
+    height: 34px;
+    padding: 0 10px;
+  }
+  .toolbar button:disabled { cursor: default; opacity: .5; }
   .sr-only { clip: rect(0,0,0,0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+
+  /*
+   * The player wears Video.js's default skin: ramp.ts takes off RAMP's
+   * vjs-theme-ramp once the player is ready. Until then, and on any element
+   * that keeps the class, don't let the theme's 490 x 270px minimum push the
+   * player past a narrow column.
+   */
+  .ramp .vjs-theme-ramp { min-height: 0; min-width: 0; }
+  /* Video.js keeps the bar hidden until playback starts; show it from the start, as before. */
+  .ramp .video-js:not(.vjs-has-started) .vjs-control-bar { display: flex; }
+  /* RAMP gives audio a 1:0 shape, so the player is the bar alone, in the flow rather than over a picture. */
+  .ramp .video-js.vjs-audio-only-mode { height: auto; padding-top: 0; }
+  .ramp .vjs-audio-only-mode .vjs-control-bar { position: relative; }
+  /* The audio bar is too short to hold its menus, so they open over the card or the page; round its corners instead of clipping. */
+  .player[data-kind='audio'] .stage { overflow: visible; }
+  .player[data-kind='audio'] .ramp .vjs-control-bar { border-radius: 0 0 var(--mango-av-radius) var(--mango-av-radius); }
+  /* RAMP narrows the bar inline, by 24px, to fit its theme's inset. The default skin runs it edge to edge. */
+  .ramp .vjs-control-bar { width: 100% !important; }
+  /*
+   * RAMP's progress bar, and the slider in it, float above the controls even
+   * without its theme. Seat them in the bar, growing like Video.js's own.
+   */
+  .ramp .vjs-control-bar > .vjs-custom-progress-bar { align-self: stretch; flex: auto; height: auto; margin: 0; position: relative; top: auto; width: auto !important; }
+  .ramp .vjs-progress-holder.vjs-custom-progress-bar { flex: auto; height: .3em; margin: 0 10px; position: relative; top: auto; width: auto !important; }
+  /*
+   * Video.js sizes a fluid player with a rule it adds to the document head,
+   * which doesn't reach into this shadow root. Give it the video's shape.
+   */
+  .player[data-kind='video'] .ramp .video-js.vjs-fluid { aspect-ratio: var(--mango-av-player-aspect-ratio); height: auto; padding-top: 0; }
+  .player[data-hide~='volume'] .ramp :is(.vjs-volume-panel, .vjs-mute-control) { display: none; }
+  .player[data-hide~='seek'] .ramp :is(.vjs-progress-control, .vjs-custom-progress-bar) { display: none; }
+  .player[data-hide~='fullscreen'] .ramp .vjs-fullscreen-control { display: none; }
+  /* Narrow: drop the controls least needed there, so the rest fit on one row. */
+  @container (max-width: 480px) {
+    .ramp :is(.vjs-picture-in-picture-control, .vjs-volume-panel) { display: none; }
+  }
+  @container (max-width: 360px) {
+    .ramp :is(.vjs-skip-backward-10, .vjs-skip-backward-5, .vjs-skip-backward-30, .vjs-skip-forward-10, .vjs-skip-forward-5, .vjs-skip-forward-30, .vjs-playback-rate) { display: none; }
+  }
 `;
 
 export class MangoAVPlayerElement extends AVControllerElement {
   static observedAttributes = ['manifest-url', 'config'];
 
+  /**
+   * Whether controller events are re-dispatched from this element. The complete
+   * element turns this off for the player inside it, which forwards them itself.
+   * @internal
+   */
+  forwardEvents = true;
+
   #root: ShadowRoot;
   #manifestInput: JsonObject | string | undefined;
   #config: AVPlayerConfig = {};
-  #resolvedSourceUrl: string | undefined;
-  #sourceToken = 0;
-  #fallbackSourceUrl: string | undefined;
-  #transcriptCues: TranscriptCue[] = [];
-  #transcriptToken = 0;
-  #visualizer = new AudioArtVisualizer();
+  #ramp: RampHandle | undefined;
+  #rampCss = '';
+  #media: HTMLMediaElement | undefined;
+  #mountToken = 0;
 
   constructor() {
     super();
@@ -73,19 +127,17 @@ export class MangoAVPlayerElement extends AVControllerElement {
   set config(value: AVPlayerConfig) {
     this.#config = value;
     this.controller.configure(value);
-    this.#render();
   }
 
   override connectedCallback(): void {
     this.#readConfigAttribute();
-    void ensureMediaChrome(this.controller.config.preferredLanguages[0]);
     super.connectedCallback();
     const source = this.#manifestInput ?? this.getAttribute('manifest-url') ?? undefined;
     if (source !== undefined && !this.controller.manifest) void this.load(source);
   }
 
   override disconnectedCallback(): void {
-    this.#visualizer.disconnect();
+    this.#unmount();
     super.disconnectedCallback();
   }
 
@@ -96,7 +148,6 @@ export class MangoAVPlayerElement extends AVControllerElement {
       void this.load(newValue);
     } else if (name === 'config') {
       this.#readConfigAttribute();
-      this.#render();
     }
   }
 
@@ -113,42 +164,19 @@ export class MangoAVPlayerElement extends AVControllerElement {
   }
 
   protected controllerChanged(): void {
-    this.#resetSourceLoad();
-    this.#transcriptCues = [];
     this.#render();
-    void this.#loadTranscript();
-    void this.#resolveSource();
   }
 
   protected handleControllerEvent<K extends keyof AVPlayerEventMap>(type: K, event: CustomEvent<AVPlayerEventMap[K]>): void {
-    if (type === 'av-configchange') {
-      this.#resetSourceLoad();
-      void ensureMediaChrome(this.controller.config.preferredLanguages[0]).then(() => {
-        this.#render();
-        void this.#loadTranscript();
-        void this.#resolveSource();
-      });
-    } else if (type === 'av-ready' || type === 'av-canvaschange') {
-      this.#resetSourceLoad();
-      this.#transcriptCues = [];
-      if (this.controller.source?.isHls) void ensureHlsElement();
+    if (type === 'av-ready' || type === 'av-canvaschange' || type === 'av-sourcechange' || type === 'av-configchange' || type === 'av-loadstart') {
       this.#render();
-      void this.#loadTranscript();
-      void this.#resolveSource();
-    } else if (type === 'av-sourcechange') {
-      this.#resetSourceLoad();
-      if (this.controller.source?.isHls) void ensureHlsElement();
+    } else if (type === 'av-error' && !this.#ramp) {
+      // RAMP reports media errors over its own player; only a failed load is shown here.
       this.#render();
-      void this.#resolveSource();
-    } else if (type === 'av-error') {
-      this.#resolvedSourceUrl = undefined;
-      this.#render();
-    } else if (type === 'av-seek') {
-      syncAudioArtTranscript(this.#root, (event.detail as AVPlayerEventMap['av-seek']).to, true);
-    } else if (type === 'av-timeupdate' || type === 'av-statechange') {
-      syncAudioArtTranscript(this.#root, this.controller.state.currentTime);
+    } else if (type === 'av-statechange') {
+      this.#syncToolbar();
     }
-    this.dispatchEvent(new CustomEvent(type, { detail: event.detail, bubbles: true, composed: true }));
+    if (this.forwardEvents) this.dispatchEvent(new CustomEvent(type, { detail: event.detail, bubbles: true, composed: true }));
   }
 
   #readConfigAttribute(): void {
@@ -164,76 +192,66 @@ export class MangoAVPlayerElement extends AVControllerElement {
   }
 
   #render(): void {
-    this.#visualizer.disconnect();
+    this.#unmount();
     const state = this.controller.state;
     const canvas = this.controller.canvas;
     const source = this.controller.source;
     const ui = resolveStrings(this.controller.config.strings);
-    this.#root.innerHTML = `<style>${styles}</style>
-      <div class="player">
-        ${state.status === 'loading' ? `<p role="status">${escapeHtml(ui.loadingManifest)}</p>` : ''}
-        ${state.status === 'error' ? `<div class="error" role="alert">${escapeHtml(state.error?.message ?? ui.unableToLoadMedia)}</div>` : ''}
-        ${canvas && source ? this.#readyHtml(canvas, source) : state.status !== 'loading' && state.status !== 'error' ? `<div class="audio-art"><span>${escapeHtml(ui.noMediaLoaded)}</span></div>` : ''}
-      </div>`;
-    const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-    if (media && this.#resolvedSourceUrl) this.#activateMedia(media, this.#resolvedSourceUrl);
-    syncAudioArtTranscript(this.#root, this.controller.state.currentTime);
+    let body = '';
+    if (state.status === 'loading') body = `<div class="stage"><p class="status" role="status">${escapeHtml(ui.loadingManifest)}</p></div>`;
+    else if (state.status === 'error' && !source) body = `<div class="stage"><p class="error" role="alert">${escapeHtml(state.error?.message ?? ui.unableToLoadPlayer)}</p></div>`;
+    else if (canvas && source) body = this.#readyHtml(canvas, source);
+    else body = `<div class="stage"><p class="status">${escapeHtml(canvas ? ui.noPlayableMedia : ui.noMediaLoaded)}</p></div>`;
+    // RAMP's stylesheet goes first, so the adjustments here win its ties.
+    this.#root.innerHTML = `<style data-ramp>${this.#rampCss}</style><style>${styles}</style>
+      <div class="player" data-kind="${source?.kind ?? 'video'}" data-hide="${this.#hiddenControls()}" style="${this.#aspectStyle(canvas, source)}">${body}</div>`;
     this.#bind();
+    const host = this.#root.querySelector<HTMLElement>('.ramp');
+    if (host && canvas && source) void this.#mount(host);
   }
 
   #readyHtml(canvas: AVCanvas, source: MediaSource): string {
     const controls = this.controller.config.controls;
     const manifest = this.controller.manifest;
-    const kind = source.kind;
     const ui = resolveStrings(this.controller.config.strings);
-    const language = this.controller.config.preferredLanguages.find((value) => value !== 'none');
+    const title = this.controller.config.audioArt.title || manifest?.label || canvas.label;
+    const cover = canvas.poster ?? manifest?.thumbnail;
     const showSourceSelector = controls.sourceSelector && canvas.sources.length > 1;
     const showToolbar = controls.navigation || controls.autoAdvance || showSourceSelector;
-    const visualizerMode = resolveAudioVisualizerMode(this.controller.config.audioArt.visualizer);
-    return `<media-controller ${kind === 'audio' ? 'audio' : ''} ${language ? `lang="${escapeHtml(language)}"` : ''}>
-      ${kind === 'audio' ? `<div class="audio-art ${visualizerMode ? `visualizer visualizer--${visualizerMode}` : ''}">${audioArtContentHtml(canvas.label, this.controller.config.audioArt.title ?? '', this.#transcriptCues, Boolean(this.controller.config.audioArt.transcript), visualizerMode)}</div>` : ''}
-      ${this.#mediaHtml(canvas, source)}
-      <slot name="overlay"></slot>
-      <slot name="controls">
-        <media-control-bar>
-          <media-play-button></media-play-button>
-          ${controls.seek ? `<media-seek-backward-button seekoffset="${controls.skipSeconds ?? 10}"></media-seek-backward-button><media-seek-forward-button seekoffset="${controls.skipSeconds ?? 10}"></media-seek-forward-button>` : ''}
-          <media-time-display showduration></media-time-display>
-          ${controls.seek ? '<media-time-range></media-time-range>' : ''}
-          ${controls.volume ? '<media-mute-button></media-mute-button><media-volume-range></media-volume-range>' : ''}
-          ${controls.captions && canvas.tracks.length > 0 ? '<media-captions-menu-button></media-captions-menu-button>' : ''}
-          ${controls.playbackRate ? '<media-playback-rate-menu-button></media-playback-rate-menu-button>' : ''}
-          ${controls.pictureInPicture && kind === 'video' ? '<media-pip-button></media-pip-button>' : ''}
-          ${controls.fullscreen && kind === 'video' ? '<media-fullscreen-button></media-fullscreen-button>' : ''}
-        </media-control-bar>
-        ${controls.captions && canvas.tracks.length > 0 ? '<media-captions-menu hidden></media-captions-menu>' : ''}
-        ${controls.playbackRate ? `<media-playback-rate-menu rates="${this.controller.config.playbackRates.join(' ')}" hidden></media-playback-rate-menu>` : ''}
-      </slot>
-    </media-controller>
-    ${showToolbar ? `<div class="toolbar">
-      ${controls.navigation ? `<div class="group">
-        <button type="button" data-action="previous" ${canvas.index === 0 ? 'disabled' : ''} aria-label="${escapeHtml(ui.previousSection)}">← ${escapeHtml(ui.previous)}</button>
-        <button type="button" data-action="next" ${canvas.index === (manifest?.canvases.length ?? 1) - 1 && !this.controller.state.repeat ? 'disabled' : ''} aria-label="${escapeHtml(ui.nextSection)}">${escapeHtml(ui.next)} →</button>
-      </div>` : ''}
-      ${showSourceSelector || controls.autoAdvance ? `<div class="group">
-        ${showSourceSelector ? `<label><span class="sr-only">${escapeHtml(ui.mediaSource)}</span><select data-action="source">${canvas.sources.map((item, index) => `<option value="${index}" ${index === this.controller.state.sourceIndex ? 'selected' : ''}>${escapeHtml(item.label ?? item.format ?? formatString(ui.sourceNumber, { number: index + 1 }))}</option>`).join('')}</select></label>` : ''}
-        ${controls.autoAdvance ? `<label><input type="checkbox" data-action="auto-advance" ${this.controller.state.autoAdvance ? 'checked' : ''}> ${escapeHtml(ui.autoAdvance)}</label>` : ''}
-      </div>` : ''}
-    </div>` : ''}`;
+    return `<div class="stage" aria-label="${escapeHtml(ui.mediaPlayer)}" role="region">
+        ${source.kind === 'audio' ? `<div class="cover">
+          ${cover ? `<img src="${escapeHtml(cover)}" alt="">` : ''}
+          <div><span class="eyebrow">${escapeHtml(ui.recording)}</span><h2>${escapeHtml(title)}</h2></div>
+        </div>` : ''}
+        <div class="stage-slot"><slot name="stage"></slot></div>
+        <div class="ramp"></div>
+      </div>
+      <slot name="after-player"></slot>
+      ${showToolbar ? `<div class="toolbar">
+        ${controls.navigation ? `<div class="group">
+          <button type="button" data-action="previous" aria-label="${escapeHtml(ui.previousSection)}">← ${escapeHtml(ui.previous)}</button>
+          <button type="button" data-action="next" aria-label="${escapeHtml(ui.nextSection)}">${escapeHtml(ui.next)} →</button>
+        </div>` : ''}
+        ${showSourceSelector || controls.autoAdvance ? `<div class="group">
+          ${showSourceSelector ? `<label><span class="sr-only">${escapeHtml(ui.mediaSource)}</span><select data-action="source">${canvas.sources.map((item, index) => `<option value="${index}" ${index === this.controller.state.sourceIndex ? 'selected' : ''}>${escapeHtml(item.label ?? item.format ?? formatString(ui.sourceNumber, { number: index + 1 }))}</option>`).join('')}</select></label>` : ''}
+          ${controls.autoAdvance ? `<label><input type="checkbox" data-action="auto-advance"> ${escapeHtml(ui.autoAdvance)}</label>` : ''}
+        </div>` : ''}
+      </div>` : ''}`;
   }
 
-  #mediaHtml(canvas: AVCanvas, source: MediaSource): string {
-    const tag = source.isHls ? 'hls-video' : source.kind;
-    const attributes = [
-      'slot="media"',
-      `preload="${this.controller.config.preload}"`,
-      this.controller.config.crossorigin ? `crossorigin="${this.controller.config.crossorigin}"` : '',
-      source.kind === 'video' && canvas.poster ? `poster="${escapeHtml(canvas.poster)}"` : '',
-      `aria-label="${escapeHtml(canvas.label)}"`,
-      `data-canvasindex="${canvas.index}"`,
+  #hiddenControls(): string {
+    const controls = this.controller.config.controls;
+    return [
+      controls.volume ? '' : 'volume',
+      controls.seek ? '' : 'seek',
+      controls.fullscreen ? '' : 'fullscreen',
     ].filter(Boolean).join(' ');
-    const tracks = canvas.tracks.map((track) => `<track src="${escapeHtml(track.src)}" kind="${track.kind}" label="${escapeHtml(track.label)}" ${track.language ? `srclang="${escapeHtml(track.language)}"` : ''} ${track.default ? 'default' : ''}>`).join('');
-    return `<${tag} ${attributes}>${tracks}</${tag}>`;
+  }
+
+  #aspectStyle(canvas: AVCanvas | undefined, source: MediaSource | undefined): string {
+    const width = source?.width ?? canvas?.width;
+    const height = source?.height ?? canvas?.height;
+    return width && height ? `--mango-av-player-aspect-ratio: ${width} / ${height}` : '';
   }
 
   #bind(): void {
@@ -241,115 +259,76 @@ export class MangoAVPlayerElement extends AVControllerElement {
     this.#root.querySelector<HTMLElement>('[data-action=next]')?.addEventListener('click', () => this.controller.next({ autoplay: this.controller.state.status === 'playing' }));
     this.#root.querySelector<HTMLSelectElement>('[data-action=source]')?.addEventListener('change', (event) => this.controller.selectSource(Number((event.target as HTMLSelectElement).value)));
     this.#root.querySelector<HTMLInputElement>('[data-action=auto-advance]')?.addEventListener('change', (event) => this.controller.setAutoAdvance((event.target as HTMLInputElement).checked));
+    this.#syncToolbar();
   }
 
-  async #resolveSource(): Promise<void> {
-    const token = ++this.#sourceToken;
+  #syncToolbar(): void {
+    const canvas = this.controller.canvas;
+    const count = this.controller.manifest?.canvases.length ?? 0;
+    const state = this.controller.state;
+    const previous = this.#root.querySelector<HTMLButtonElement>('[data-action=previous]');
+    const next = this.#root.querySelector<HTMLButtonElement>('[data-action=next]');
+    const autoAdvance = this.#root.querySelector<HTMLInputElement>('[data-action=auto-advance]');
+    if (previous) previous.disabled = !canvas || canvas.index === 0;
+    if (next) next.disabled = !canvas || (canvas.index >= count - 1 && !state.repeat);
+    if (autoAdvance) autoAdvance.checked = state.autoAdvance;
+  }
+
+  async #mount(host: HTMLElement): Promise<void> {
+    const token = ++this.#mountToken;
+    const controller = this.controller;
+    const manifest = controller.manifest;
+    const canvas = controller.canvas;
+    const source = controller.source;
+    if (!manifest || !canvas || !source) return;
     try {
-      const url = await this.controller.resolvedSourceUrl();
-      if (token !== this.#sourceToken || !url) return;
-      this.#resolvedSourceUrl = url;
-      const media = this.#root.querySelector('video, audio, hls-video') as HTMLMediaElement | null;
-      if (media) this.#activateMedia(media, url);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      this.dispatchEvent(new CustomEvent('av-error', { detail: { error }, bubbles: true, composed: true }));
-    }
-  }
-
-  #activateMedia(media: HTMLMediaElement, sourceUrl: string): void {
-    const mode = resolveAudioVisualizerMode(this.controller.config.audioArt.visualizer);
-    const policy = resolveAudioMediaPolicy(
-      sourceUrl,
-      this.controller.config.crossorigin,
-      this.controller.crossoriginExplicit,
-      media instanceof HTMLAudioElement ? mode : undefined,
-      this.#fallbackSourceUrl === sourceUrl,
-    );
-    if (media instanceof HTMLAudioElement && policy.implicitCors) {
-      media.addEventListener('error', (event) => {
-        if (this.#fallbackSourceUrl === sourceUrl) return;
-        event.stopImmediatePropagation();
-        this.#fallbackToOrdinaryAudio(media, sourceUrl);
-      }, { once: true });
-    }
-    if (media instanceof HTMLAudioElement && mode && policy.visualize) {
-      const connect = () => {
-        const art = this.#root.querySelector<HTMLElement>('.audio-art.visualizer');
-        if (art && media.isConnected && (media.currentSrc === sourceUrl || media.src === sourceUrl)) {
-          this.#visualizer.connect(media, art, mode);
-        }
-      };
-      media.addEventListener('loadedmetadata', connect, { once: true });
-      if (media.readyState >= HTMLMediaElement.HAVE_METADATA) queueMicrotask(connect);
-    }
-    this.controller.attachMedia(media);
-    applyMediaSource(media, sourceUrl, policy.crossOrigin);
-  }
-
-  #fallbackToOrdinaryAudio(failed: HTMLAudioElement, sourceUrl: string): void {
-    this.#fallbackSourceUrl = sourceUrl;
-    this.#visualizer.disconnect();
-    const requestedTime = this.controller.state.currentTime;
-    const shouldPlay = this.controller.state.status === 'playing' || !failed.paused;
-    const replacement = failed.cloneNode(true) as HTMLAudioElement;
-    replacement.removeAttribute('src');
-    replacement.removeAttribute('crossorigin');
-    replacement.volume = failed.volume;
-    replacement.muted = failed.muted;
-    replacement.playbackRate = failed.playbackRate;
-    const hadFocus = this.#root.activeElement === failed;
-    failed.replaceWith(replacement);
-    this.controller.attachMedia(replacement);
-    this.controller.seekTo(requestedTime);
-    if (hadFocus) replacement.focus();
-    const art = this.#root.querySelector<HTMLElement>('.audio-art');
-    art?.classList.remove('visualizer');
-    applyMediaSource(replacement, sourceUrl);
-    if (shouldPlay) replacement.addEventListener('loadedmetadata', () => void replacement.play().catch(() => undefined), { once: true });
-    this.controller.dispatchEvent(new CustomEvent('av-visualizerfallback', {
-      detail: { canvasId: this.controller.canvas?.id ?? '', sourceUrl, reason: 'cors' },
-    }));
-  }
-
-  #resetSourceLoad(): void {
-    this.#sourceToken += 1;
-    this.#resolvedSourceUrl = undefined;
-    this.#fallbackSourceUrl = undefined;
-    this.#visualizer.disconnect();
-  }
-
-  async #loadTranscript(): Promise<void> {
-    const resource = this.controller.canvas?.transcripts[0];
-    if (!resource || !this.controller.config.audioArt.transcript) return;
-    const token = ++this.#transcriptToken;
-    const options: Parameters<typeof loadTranscript>[1] = {};
-    if (this.controller.config.fetch) options.fetch = this.controller.config.fetch;
-    if (this.controller.config.requestInit) options.requestInit = this.controller.config.requestInit;
-    if (this.controller.config.transcript.showNotes !== undefined) options.showNotes = this.controller.config.transcript.showNotes;
-    if (this.controller.config.transcript.showMetadata !== undefined) options.showMetadata = this.controller.config.transcript.showMetadata;
-    try {
-      const cues = await loadTranscript(resource, options);
-      if (token !== this.#transcriptToken) return;
-      this.#transcriptCues = cues;
-      const art = this.#root.querySelector<HTMLElement>('.audio-art');
-      const canvas = this.controller.canvas;
-      if (art && canvas && this.controller.source?.kind === 'audio') {
-        const text = art.querySelector<HTMLElement>('.audio-art-text');
-        if (text) text.innerHTML = audioArtTranscriptHtml(canvas.label, this.controller.config.audioArt.title ?? '', cues, true);
-        syncAudioArtTranscript(art, this.controller.state.currentTime);
+      const [src, ramp] = await Promise.all([controller.resolvedSourceUrl(), loadRamp()]);
+      if (token !== this.#mountToken || !host.isConnected || !src) return;
+      if (!this.#rampCss) {
+        this.#rampCss = ramp.rampCss;
+        const style = this.#root.querySelector('style[data-ramp]');
+        if (style) style.textContent = ramp.rampCss;
       }
+      const config = controller.config;
+      const { controls } = config;
+      const options: Parameters<RampModule['mountRamp']>[1] = {
+        manifest: rampManifest(manifest, canvas, source, { src, captions: Boolean(controls.captions), download: Boolean(controls.download) }),
+        language: config.preferredLanguages.find((value) => value !== 'none') ?? 'en',
+        playbackRate: Boolean(controls.playbackRate),
+        playbackRates: config.playbackRates,
+        pictureInPicture: Boolean(controls.pictureInPicture) && source.kind === 'video',
+        download: Boolean(controls.download),
+        withCredentials: config.withCredentials,
+        resume: { enable: Boolean(config.resume.enabled), ttlDays: config.resume.ttlDays ?? 30, maxItems: config.resume.maxItems ?? 200 },
+        onMedia: (media) => {
+          if (token !== this.#mountToken) return;
+          this.#media = media;
+          controller.attachMedia(media);
+        },
+      };
+      if (controls.seek && controls.skipSeconds) options.skipSeconds = controls.skipSeconds;
+      this.#ramp = ramp.mountRamp(host, options);
     } catch (cause) {
-      if (token !== this.#transcriptToken) return;
+      if (token !== this.#mountToken) return;
       const error = cause instanceof Error ? cause : new Error(String(cause));
       this.dispatchEvent(new CustomEvent('av-error', { detail: { error }, bubbles: true, composed: true }));
     }
+  }
+
+  #unmount(): void {
+    this.#mountToken += 1;
+    if (this.#media && this.controller.media === this.#media) this.controller.detachMedia();
+    this.#media = undefined;
+    this.#ramp?.destroy();
+    this.#ramp = undefined;
   }
 }
 
 export const defineMangoAVPlayer = (tagName = 'mango-av-player'): typeof MangoAVPlayerElement => {
-  registerVisualizerProperties();
   if (typeof customElements === 'undefined') return MangoAVPlayerElement;
-  if (!customElements.get(tagName)) customElements.define(tagName, MangoAVPlayerElement);
+  if (!MangoAVPlayerElement.registeredTag && !customElements.get(tagName)) {
+    customElements.define(tagName, MangoAVPlayerElement);
+    MangoAVPlayerElement.registeredTag = tagName;
+  }
   return MangoAVPlayerElement;
 };

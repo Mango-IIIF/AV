@@ -228,7 +228,6 @@ const annotationFrom = (
 
 const classifySupplement = (
   body: JsonObject,
-  annotation: JsonObject,
   canvasId: string,
   languages: string[],
   index: number,
@@ -288,7 +287,7 @@ const collectSupplementing = (
       for (const body of bodyItems(annotation.body ?? annotation.resource)) {
         const bodyId = readId(body);
         if (bodyId && (motivations.includes('supplementing') || motivations.includes('transcribing') || motivations.length === 0)) {
-          const supplement = classifySupplement(body, annotation, canvasId, languages, index, ui);
+          const supplement = classifySupplement(body, canvasId, languages, index, ui);
           if (supplement.track) tracks.push(supplement.track);
           if (supplement.transcript) transcripts.push(supplement.transcript);
         }
@@ -571,5 +570,7 @@ export const normalizeManifest = async (
   if (homepage) result.homepage = homepage;
   const logo = readId(asArray(source.logo ?? source.provider)[0]);
   if (logo) result.logo = logo;
+  const thumbnail = readId(asArray(source.thumbnail)[0]);
+  if (thumbnail) result.thumbnail = thumbnail;
   return result;
 };

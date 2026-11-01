@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Audio transcripts shown as captions with @mango-iiif/av">
+    <title>Mango AV audio captions</title>
+    <script type="module" src="/captions.ts"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">@mango-iiif/av</p>
+        <h1>Audio captions</h1>
+        <p>Audio whose transcript plays like captions on a video, built in or in a layout of your own.</p>
+      </div>
+      <nav><a href="/">Configuration builder</a><a href="/composable.html">Composable demo</a></nav>
+    </header>
+
+    <main class="showcase">
+      <section class="showcase-section" aria-labelledby="built-in-heading">
+        <div class="showcase-heading">
+          <div>
+            <p class="eyebrow">Built in</p>
+            <h2 id="built-in-heading">The complete player</h2>
+            <p>Set <code>audioArt.captions</code> and <code>&lt;mango-av-media&gt;</code> shows the transcript in the audio card, above the controls.</p>
+          </div>
+          <label>Captions
+            <select id="captions-mode">
+              <option value="context">With lines either side</option>
+              <option value="line">Line being spoken</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+        <mango-av-media id="built-in"></mango-av-media>
+        <pre><code id="built-in-code"></code></pre>
+      </section>
+
+      <section class="showcase-section" aria-labelledby="own-layout-heading">
+        <div class="showcase-heading">
+          <div>
+            <p class="eyebrow">Your own layout</p>
+            <h2 id="own-layout-heading">Transcript above the player</h2>
+            <p>The same pieces, arranged by the page: the transcript first, then the player with captions in its <code>stage</code> slot. One controller keeps them in step.</p>
+          </div>
+        </div>
+        <div class="own-layout">
+          <mango-av-transcript id="own-transcript"></mango-av-transcript>
+          <mango-av-player id="own-player">
+            <mango-av-captions id="own-captions" slot="stage"></mango-av-captions>
+          </mango-av-player>
+        </div>
+        <pre><code>&lt;mango-av-transcript&gt;&lt;/mango-av-transcript&gt;
+&lt;mango-av-player&gt;
+  &lt;mango-av-captions slot="stage"&gt;&lt;/mango-av-captions&gt;
+&lt;/mango-av-player&gt;
+
+const controller = new AVPlayerController();
+for (const element of [transcript, player, captions]) element.controller = controller;
+await controller.load(manifest);</code></pre>
+      </section>
+    </main>
+  </body>
+</html>

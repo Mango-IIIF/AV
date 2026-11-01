@@ -15,13 +15,6 @@ import { mergeConfig, withoutFragment } from './utils';
 
 type ResolvedConfig = AVPlayerConfig & typeof defaultConfig;
 
-interface SavedPosition {
-  time: number;
-  savedAt: number;
-}
-
-const positionPrefix = '@mango-iiif/av:position:';
-
 export class AVPlayerController extends EventTarget {
   #config: ResolvedConfig;
   #state: AVPlayerState = {
@@ -40,12 +33,12 @@ export class AVPlayerController extends EventTarget {
   #lastTime = 0;
   #timelineScale = 1;
   #pendingTime: number | undefined;
+  /** Playback to start once the next Canvas or source has media attached. */
+  #pendingPlay = false;
   #boundListeners = new Map<string, EventListener>();
-  #crossoriginExplicit: boolean;
 
   constructor(config: AVPlayerConfig = {}) {
     super();
-    this.#crossoriginExplicit = Object.hasOwn(config, 'crossorigin');
     this.#config = mergeConfig(defaultConfig, config) as ResolvedConfig;
     this.#state.autoAdvance = this.#config.autoAdvance;
     this.#state.repeat = this.#config.repeat;
@@ -75,11 +68,6 @@ export class AVPlayerController extends EventTarget {
     return this.#media;
   }
 
-  /** Whether the host explicitly selected the media element CORS policy. */
-  get crossoriginExplicit(): boolean {
-    return this.#crossoriginExplicit;
-  }
-
   on<K extends keyof AVPlayerEventMap>(
     type: K,
     listener: (event: CustomEvent<AVPlayerEventMap[K]>) => void,
@@ -90,7 +78,6 @@ export class AVPlayerController extends EventTarget {
   }
 
   configure(config: AVPlayerConfig): void {
-    if (Object.hasOwn(config, 'crossorigin')) this.#crossoriginExplicit = true;
     this.#config = mergeConfig(
       this.#config as unknown as Record<string, unknown>,
       config as unknown as Record<string, unknown>,
@@ -168,6 +155,11 @@ export class AVPlayerController extends EventTarget {
         this.#state.duration = this.canvas?.duration ?? target?.end ?? (Number.isFinite(media.duration) ? this.#toCanvasTime(media.duration) : 0);
         this.#emitState();
       },
+      canplay: () => {
+        if (!this.#pendingPlay) return;
+        this.#pendingPlay = false;
+        void media.play().catch(() => undefined);
+      },
       play: () => {
         this.#state.status = 'playing';
         this.#emit('av-play', { canvasId: this.canvas?.id ?? '', time: this.#toCanvasTime(media.currentTime) });
@@ -175,7 +167,6 @@ export class AVPlayerController extends EventTarget {
       },
       pause: () => {
         if (!media.ended) this.#state.status = 'paused';
-        this.#savePosition();
         this.#emit('av-pause', { canvasId: this.canvas?.id ?? '', time: this.#toCanvasTime(media.currentTime) });
         this.#emitState();
       },
@@ -215,7 +206,6 @@ export class AVPlayerController extends EventTarget {
       ended: () => {
         this.#state.status = 'ended';
         this.#emit('av-ended', { canvasId: this.canvas?.id ?? '' });
-        this.#clearPosition();
         this.#emitState();
         void this.#advanceAfterEnd();
       },
@@ -231,6 +221,10 @@ export class AVPlayerController extends EventTarget {
       media.addEventListener(type, listener);
       this.#boundListeners.set(type, listener);
     }
+    // The player may hand over media that has already loaded, or is already playing.
+    if (media.readyState >= HTMLMediaElement.HAVE_METADATA) listeners.loadedmetadata?.(new Event('loadedmetadata'));
+    if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) listeners.canplay?.(new Event('canplay'));
+    if (!media.paused) listeners.play?.(new Event('play'));
   }
 
   detachMedia(): void {
@@ -288,9 +282,10 @@ export class AVPlayerController extends EventTarget {
     this.#state.currentTime = time;
     this.#state.duration = canvas?.duration ?? 0;
     this.#pendingTime = this.#state.currentTime;
+    this.#pendingPlay = wasPlaying;
+    this.detachMedia();
     if (canvas) this.#emit('av-canvaschange', { canvas, canvasIndex: index });
     this.#emitState();
-    if (wasPlaying) queueMicrotask(() => void this.play());
     return canvas;
   }
 
@@ -315,9 +310,10 @@ export class AVPlayerController extends EventTarget {
     this.#state.sourceIndex = index;
     this.#timelineScale = 1;
     this.#pendingTime = currentTime;
+    this.#pendingPlay = wasPlaying;
+    this.detachMedia();
     this.#emit('av-sourcechange', { source, sourceIndex: index });
     this.#emitState();
-    if (wasPlaying) queueMicrotask(() => void this.play());
     return source;
   }
 
@@ -377,25 +373,7 @@ export class AVPlayerController extends EventTarget {
     this.#emitState();
   }
 
-  getSavedPosition(): number | undefined {
-    if (!this.#config.resume.enabled || !this.canvas || typeof localStorage === 'undefined') return undefined;
-    const raw = localStorage.getItem(`${positionPrefix}${this.#state.manifest?.id}:${this.canvas.id}`);
-    if (!raw) return undefined;
-    try {
-      const saved = JSON.parse(raw) as SavedPosition;
-      const ttl = (this.#config.resume.ttlDays ?? 30) * 86_400_000;
-      if (Date.now() - saved.savedAt > ttl) {
-        this.#clearPosition();
-        return undefined;
-      }
-      return saved.time;
-    } catch {
-      return undefined;
-    }
-  }
-
   destroy(): void {
-    this.#savePosition();
     this.detachMedia();
   }
 
@@ -413,27 +391,6 @@ export class AVPlayerController extends EventTarget {
     if (!this.#state.autoAdvance) return;
     const next = this.next({ autoplay: true });
     if (!next) this.#state.status = 'ended';
-  }
-
-  #savePosition(): void {
-    if (!this.#config.resume.enabled || !this.canvas || typeof localStorage === 'undefined') return;
-    const time = this.#state.currentTime;
-    if (time <= 0 || (this.#state.duration > 0 && time >= this.#state.duration - 2)) return;
-    const key = `${positionPrefix}${this.#state.manifest?.id}:${this.canvas.id}`;
-    localStorage.setItem(key, JSON.stringify({ time, savedAt: Date.now() } satisfies SavedPosition));
-    const keys = Object.keys(localStorage).filter((item) => item.startsWith(positionPrefix));
-    const maxItems = this.#config.resume.maxItems ?? 200;
-    if (keys.length > maxItems) {
-      const oldest = keys
-        .map((item) => ({ item, value: JSON.parse(localStorage.getItem(item) ?? '{}') as Partial<SavedPosition> }))
-        .sort((a, b) => (a.value.savedAt ?? 0) - (b.value.savedAt ?? 0))[0];
-      if (oldest) localStorage.removeItem(oldest.item);
-    }
-  }
-
-  #clearPosition(): void {
-    if (!this.canvas || typeof localStorage === 'undefined') return;
-    localStorage.removeItem(`${positionPrefix}${this.#state.manifest?.id}:${this.canvas.id}`);
   }
 
   #emit<K extends keyof AVPlayerEventMap>(type: K, detail: AVPlayerEventMap[K]): void {
