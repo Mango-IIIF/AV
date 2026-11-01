@@ -13,5 +13,5 @@
     "verbatimModuleSyntax": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "demo", "tests", "vite.demo.config.ts", "vitest.config.ts", "playwright.config.ts"]
+  "include": ["src", "demo", "tests", "vite.demo.config.ts", "vitest.config.ts", "playwright.config.ts", "tsup.config.ts"]
 }

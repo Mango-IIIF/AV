@@ -73,13 +73,11 @@ describe('AVPlayerController', () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 
-  it('keeps audio transcript and visualizer options independent', () => {
-    const controller = new AVPlayerController({ audioArt: { transcript: true } });
-    expect(controller.config.audioArt).toEqual({ title: '', transcript: true, visualizer: false });
-    controller.configure({ audioArt: { visualizer: true } });
-    expect(controller.config.audioArt).toEqual({ title: '', transcript: true, visualizer: true });
-    controller.configure({ audioArt: { visualizer: 'spectrum' } });
-    expect(controller.config.audioArt).toEqual({ title: '', transcript: true, visualizer: 'spectrum' });
+  it('takes a custom audio card title', () => {
+    const controller = new AVPlayerController();
+    expect(controller.config.audioArt).toEqual({ title: '', captions: false });
+    controller.configure({ audioArt: { title: 'Listen' } });
+    expect(controller.config.audioArt).toEqual({ title: 'Listen', captions: false });
   });
 
   it('hides navigation and auto-advance controls by default', () => {
@@ -91,15 +89,46 @@ describe('AVPlayerController', () => {
     expect(controller.config.controls.autoAdvance).toBe(true);
   });
 
-  it('uses ordinary no-CORS media loading unless explicitly configured', () => {
+  it('sends media requests without credentials unless configured', () => {
     const controller = new AVPlayerController();
-    expect(controller.config.crossorigin).toBe('');
+    expect(controller.config.withCredentials).toBe(false);
+    controller.configure({ withCredentials: true });
+    expect(controller.config.withCredentials).toBe(true);
+  });
 
-    controller.configure({ crossorigin: 'anonymous' });
-    expect(controller.config.crossorigin).toBe('anonymous');
+  it('catches up with media the player hands over after it has loaded', async () => {
+    const controller = new AVPlayerController({ startTime: 4 });
+    await controller.load(manifest);
+    const media = document.createElement('video');
+    Object.defineProperty(media, 'readyState', { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
+    Object.defineProperty(media, 'duration', { configurable: true, value: 10 });
 
-    controller.configure({ crossorigin: 'use-credentials' });
-    expect(controller.config.crossorigin).toBe('use-credentials');
+    controller.attachMedia(media);
+
+    expect(media.currentTime).toBe(4);
+    expect(controller.state.duration).toBe(10);
+  });
+
+  it('carries playback over to the next Canvas once its media can play', async () => {
+    const controller = new AVPlayerController();
+    await controller.load(manifest);
+    const first = document.createElement('video');
+    controller.attachMedia(first);
+    first.dispatchEvent(new Event('play'));
+    expect(controller.state.status).toBe('playing');
+
+    controller.next();
+    expect(controller.media).toBeUndefined();
+
+    const second = document.createElement('video');
+    const play = vi.fn(async () => undefined);
+    second.play = play;
+    controller.attachMedia(second);
+    expect(play).not.toHaveBeenCalled();
+    second.dispatchEvent(new Event('canplay'));
+    expect(play).toHaveBeenCalledOnce();
+    second.dispatchEvent(new Event('canplay'));
+    expect(play).toHaveBeenCalledOnce();
   });
 
   it('resolves protected source URLs through the configured request hook', async () => {

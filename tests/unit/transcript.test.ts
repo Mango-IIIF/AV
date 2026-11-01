@@ -16,6 +16,21 @@ Second line
     expect(cues[1]).toMatchObject({ start: 1.5, end: 4, text: 'First line\nSecond line' });
   });
 
+  it('takes the speaker from a WebVTT voice tag', () => {
+    const cues = parseTimedText(`WEBVTT
+
+00:00.000 --> 00:02.000
+<v Ana>Hello there.</v>
+
+00:02.000 --> 00:04.000
+<v.loud Ben Ito>Hi!
+
+00:04.000 --> 00:06.000
+No voice.
+`, 'vtt');
+    expect(cues.map((cue) => [cue.speaker, cue.text])).toEqual([['Ana', 'Hello there.'], ['Ben Ito', 'Hi!'], [undefined, 'No voice.']]);
+  });
+
   it('parses SRT timestamps with comma milliseconds', () => {
     const cues = parseTimedText('1\n00:00:02,250 --> 00:00:04,500\nHello\n', 'srt');
     expect(cues[0]).toMatchObject({ start: 2.25, end: 4.5, text: 'Hello' });

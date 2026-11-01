@@ -17,10 +17,12 @@ export const controllerEventTypes: Array<keyof AVPlayerEventMap> = [
   'av-annotationschange',
   'av-configchange',
   'av-statechange',
-  'av-visualizerfallback',
 ];
 
 export abstract class AVControllerElement extends HTMLElementBase {
+  /** The tag this class was defined under, which the complete element renders. */
+  static registeredTag: string | undefined;
+
   #controller = new AVPlayerController();
   #connected = false;
   #listeners = new Map<keyof AVPlayerEventMap, EventListener>();

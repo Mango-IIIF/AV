@@ -66,7 +66,8 @@ export const videoManifest = {
       id: 'https://example.org/canvas/1',
       type: 'Canvas',
       label: { en: ['Video section'] },
-      duration: 30,
+      // The length of the video file, which the Canvas must match.
+      duration: 134.42,
       width: 1280,
       height: 720,
       items: [{
@@ -124,7 +125,8 @@ export const audioManifest = {
     id: 'https://example.org/canvas/1',
     type: 'Canvas',
     label: { en: ['Audio section'] },
-    duration: 30,
+    // The length of the audio file, which the Canvas must match.
+    duration: 23.866,
     items: [{
       id: 'https://example.org/page/audio/1',
       type: 'AnnotationPage',
@@ -142,6 +144,29 @@ export const audioManifest = {
       }],
     }],
     annotations: [{ id: 'https://example.org/page/audio-supplementing/1', type: 'AnnotationPage', items: transcriptAnnotations }],
+  }],
+};
+
+/* Audio with a spoken transcript, for showing it as captions. */
+export const captionsManifest = {
+  ...audioManifest,
+  id: 'https://example.org/manifest/captions-demo',
+  label: { en: ['An oral history, read as you listen'] },
+  summary: { en: ['Audio whose transcript plays like captions on a video.'] },
+  structures: [],
+  items: [{
+    ...audioManifest.items[0],
+    annotations: [{
+      id: 'https://example.org/page/captions/1',
+      type: 'AnnotationPage',
+      items: [{
+        id: 'https://example.org/annotation/captions/1',
+        type: 'Annotation',
+        motivation: 'supplementing',
+        body: { id: '/captions-demo.vtt', type: 'Text', format: 'text/vtt', label: { en: ['Transcript'] }, language: 'en' },
+        target: 'https://example.org/canvas/1',
+      }],
+    }],
   }],
 };
 

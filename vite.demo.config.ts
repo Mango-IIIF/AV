@@ -16,6 +16,7 @@ export default defineConfig({
         main: new URL('./demo/index.html', import.meta.url).pathname,
         api: new URL('./demo/api.html', import.meta.url).pathname,
         composable: new URL('./demo/composable.html', import.meta.url).pathname,
+        captions: new URL('./demo/captions.html', import.meta.url).pathname,
       },
     },
   },

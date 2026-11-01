@@ -1,104 +1,69 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+const { mountRamp, handles } = vi.hoisted(() => {
+  const handles: Array<{ destroy: ReturnType<typeof vi.fn> }> = [];
+  const mountRamp = vi.fn((_host: HTMLElement, _options: Record<string, unknown>) => {
+    const handle = { destroy: vi.fn() };
+    handles.push(handle);
+    return handle;
+  });
+  return { mountRamp, handles };
+});
+
+vi.mock('../../src/components/ramp', () => ({ rampCss: '.ramp-test {}', mountRamp }));
+
 import { defineMangoAVPlayer } from '../../src/components/mango-av-player';
 import { defineMangoAVMedia } from '../../src/components/mango-av-media';
 import { AVPlayerController } from '../../src/controller';
+import type { RampMountOptions } from '../../src/components/ramp';
 
 const tagName = 'test-mango-av-player';
 const mediaTagName = 'test-mango-av-media';
+
+const canvasWith = (id: string, body: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+  id,
+  type: 'Canvas',
+  duration: 10,
+  ...extra,
+  items: [{
+    type: 'AnnotationPage',
+    items: [{ type: 'Annotation', motivation: 'painting', body, target: id }],
+  }],
+});
+
 const videoManifest = {
   id: 'https://example.org/manifest',
   type: 'Manifest',
-  items: [{
-    id: 'https://example.org/canvas',
-    type: 'Canvas',
-    items: [{
-      type: 'AnnotationPage',
-      items: [{
-        type: 'Annotation',
-        motivation: 'painting',
-        body: { id: 'https://media.example.org/movie.mp4', type: 'Video', format: 'video/mp4' },
-        target: 'https://example.org/canvas',
-      }],
-    }],
-  }],
+  label: { en: ['Video'] },
+  items: [canvasWith('https://example.org/canvas', { id: 'https://media.example.org/movie.mp4', type: 'Video', format: 'video/mp4' }, { width: 4, height: 3 })],
 };
 
 const audioManifest = {
   id: 'https://example.org/audio-manifest',
   type: 'Manifest',
-  items: [{
-    id: 'https://example.org/audio-canvas',
-    type: 'Canvas',
-    duration: 10,
-    items: [{
-      type: 'AnnotationPage',
-      items: [{
-        type: 'Annotation',
-        motivation: 'painting',
-        body: { id: 'https://media.example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' },
-        target: 'https://example.org/audio-canvas',
-      }],
-    }],
-  }],
-};
-
-const twoCanvasAudioManifest = {
-  ...audioManifest,
-  id: 'https://example.org/two-audio-manifest',
+  label: { en: ['Oral history'] },
+  thumbnail: [{ id: 'https://example.org/cover.jpg', type: 'Image' }],
   items: [
-    audioManifest.items[0],
-    {
-      ...audioManifest.items[0],
-      id: 'https://example.org/audio-canvas-2',
-      items: [{
-        type: 'AnnotationPage',
-        items: [{
-          type: 'Annotation',
-          motivation: 'painting',
-          body: { id: 'https://media.example.org/audio-2.mp3', type: 'Sound', format: 'audio/mpeg' },
-          target: 'https://example.org/audio-canvas-2',
-        }],
-      }],
-    },
+    canvasWith('https://example.org/audio-canvas', { id: 'https://media.example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' }),
+    canvasWith('https://example.org/audio-canvas-2', { id: 'https://media.example.org/audio-2.mp3', type: 'Sound', format: 'audio/mpeg' }),
   ],
 };
 
-const settle = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+type PlayerElement = ReturnType<typeof defineMangoAVPlayer>['prototype'];
+type MediaElement = ReturnType<typeof defineMangoAVMedia>['prototype'];
+
+const lastMount = () => {
+  const call = mountRamp.mock.calls.at(-1);
+  if (!call) throw new Error('RAMP was not mounted');
+  return { host: call[0], options: call[1] as unknown as RampMountOptions };
 };
 
-const installAudioContext = () => {
-  const source = { connect: vi.fn(), disconnect: vi.fn() };
-  const analyzer = {
-    fftSize: 0,
-    smoothingTimeConstant: 0,
-    frequencyBinCount: 256,
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    getByteTimeDomainData: vi.fn(),
-    getByteFrequencyData: vi.fn(),
-  };
-  const context = {
-    state: 'suspended',
-    destination: {},
-    createMediaElementSource: vi.fn(() => source),
-    createAnalyser: vi.fn(() => analyzer),
-    resume: vi.fn(async () => undefined),
-    close: vi.fn(async () => undefined),
-  };
-  const AudioContextMock = vi.fn();
-  class FakeAudioContext {
-    constructor() {
-      AudioContextMock();
-      return context;
-    }
-  }
-  vi.stubGlobal('AudioContext', FakeAudioContext);
-  return { AudioContextMock, context, source };
+const mounted = async (count = 1) => {
+  await vi.waitFor(() => expect(mountRamp).toHaveBeenCalledTimes(count));
+  return lastMount();
 };
 
-describe('MangoAVPlayerElement media CORS configuration', () => {
+describe('MangoAVPlayerElement with RAMP', () => {
   beforeAll(() => {
     defineMangoAVPlayer(tagName);
     defineMangoAVMedia(mediaTagName);
@@ -106,191 +71,132 @@ describe('MangoAVPlayerElement media CORS configuration', () => {
 
   afterEach(() => {
     document.body.replaceChildren();
-    vi.unstubAllGlobals();
+    mountRamp.mockClear();
+    handles.length = 0;
   });
 
-  it('omits crossorigin by default and preserves explicit modes', async () => {
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
+  it('mounts RAMP with the active Canvas and the resolved source', async () => {
+    const player = document.createElement(tagName) as PlayerElement;
+    player.config = { resolveRequest: (url) => `${url}?token=1` };
     document.body.append(player);
     await player.load(videoManifest);
+    const { host, options } = await mounted();
 
-    expect(player.shadowRoot?.querySelector('video')?.hasAttribute('crossorigin')).toBe(false);
-
-    player.config = { crossorigin: 'anonymous' };
-    expect(player.shadowRoot?.querySelector('video')?.getAttribute('crossorigin')).toBe('anonymous');
-
-    player.config = { crossorigin: 'use-credentials' };
-    expect(player.shadowRoot?.querySelector('video')?.getAttribute('crossorigin')).toBe('use-credentials');
-    player.remove();
+    expect(player.shadowRoot?.contains(host)).toBe(true);
+    const canvas = (options.manifest.items as Array<Record<string, unknown>>)[0];
+    const body = (((canvas?.items as Array<Record<string, unknown>>)[0]?.items as Array<Record<string, unknown>>)[0]?.body) as Record<string, unknown>;
+    expect(body.id).toBe('https://media.example.org/movie.mp4?token=1');
+    expect(options.language).toBe('en');
+    expect(options.playbackRate).toBe(true);
+    expect(options.pictureInPicture).toBe(true);
+    expect(options.skipSeconds).toBe(10);
+    expect(player.shadowRoot?.querySelector('style[data-ramp]')?.textContent).toBe('.ramp-test {}');
+    expect(player.shadowRoot?.querySelector<HTMLElement>('.player')?.style.getPropertyValue('--mango-av-player-aspect-ratio')).toBe('4 / 3');
   });
 
-  it('does not create Web Audio when the visualizer is disabled', async () => {
-    const { AudioContextMock } = installAudioContext();
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    document.body.append(player);
-    await player.load(audioManifest);
-    await settle();
-    player.shadowRoot?.querySelector('audio')?.dispatchEvent(new Event('loadedmetadata'));
-
-    expect(AudioContextMock).not.toHaveBeenCalled();
-  });
-
-  it('hides the audio artwork title by default and allows custom text', async () => {
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    document.body.append(player);
-    await player.load(audioManifest);
-    await settle();
-
-    expect(player.shadowRoot?.querySelector('.audio-art-title')).toBeNull();
-    expect(player.shadowRoot?.querySelector('audio')?.getAttribute('aria-label')).toBe('Section 1');
-
-    player.config = { audioArt: { title: 'Listen & learn' } };
-
-    expect(player.shadowRoot?.querySelector('.audio-art-title')?.textContent).toBe('Listen & learn');
-  });
-
-  it('resolves media when an already-loaded controller is connected', async () => {
-    const controller = new AVPlayerController({
-      resolveRequest: (url) => `${url}?resolved=true`,
-    });
-    await controller.load(audioManifest);
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
+  it('attaches the controller to the media element RAMP plays through', async () => {
+    const controller = new AVPlayerController();
+    await controller.load(videoManifest);
+    const player = document.createElement(tagName) as PlayerElement;
     document.body.append(player);
     player.controller = controller;
+    const { options } = await mounted();
 
-    await settle();
-    const audio = player.shadowRoot?.querySelector('audio');
+    const media = document.createElement('video');
+    options.onMedia(media);
 
-    expect(audio?.src).toBe('https://media.example.org/audio.mp3?resolved=true');
-    expect(controller.media).toBe(audio);
+    expect(controller.media).toBe(media);
   });
 
-  it('applies implicit anonymous CORS before src and connects only after load succeeds', async () => {
-    const { AudioContextMock, context } = installAudioContext();
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    player.config = { audioArt: { visualizer: true } };
+  it('maps control settings onto RAMP and the control bar', async () => {
+    const player = document.createElement(tagName) as PlayerElement;
+    player.config = { controls: { playbackRate: false, volume: false, fullscreen: false, seek: false }, withCredentials: true };
     document.body.append(player);
-    const mutations: string[] = [];
-    const observer = new MutationObserver((records) => {
-      for (const record of records) if (record.attributeName) mutations.push(record.attributeName);
-    });
-    observer.observe(player.shadowRoot!, { attributes: true, subtree: true });
+    await player.load(videoManifest);
+    const { options } = await mounted();
 
-    await player.load(audioManifest);
-    await settle();
-    const audio = player.shadowRoot?.querySelector('audio');
-    observer.takeRecords().forEach((record) => { if (record.attributeName) mutations.push(record.attributeName); });
-
-    expect(audio?.crossOrigin).toBe('anonymous');
-    expect(audio?.src).toBe('https://media.example.org/audio.mp3');
-    expect(mutations.indexOf('crossorigin')).toBeLessThan(mutations.indexOf('src'));
-    expect(AudioContextMock).not.toHaveBeenCalled();
-
-    audio?.dispatchEvent(new Event('loadedmetadata'));
-    expect(AudioContextMock).toHaveBeenCalledOnce();
-    expect(context.createMediaElementSource).toHaveBeenCalledWith(audio);
-    observer.disconnect();
+    expect(options.playbackRate).toBe(false);
+    expect(options.withCredentials).toBe(true);
+    expect(options.skipSeconds).toBeUndefined();
+    expect(player.shadowRoot?.querySelector('.player')?.getAttribute('data-hide')).toBe('volume seek fullscreen');
   });
 
-  it.each(['anonymous', 'use-credentials'] as const)('does not weaken an explicit %s failure', async (crossorigin) => {
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    player.config = { crossorigin, audioArt: { visualizer: true } };
-    const fallback = vi.fn();
-    player.addEventListener('av-visualizerfallback', fallback);
+  it('shows an audio card with the Manifest label and thumbnail, or a custom title', async () => {
+    const player = document.createElement(tagName) as PlayerElement;
     document.body.append(player);
     await player.load(audioManifest);
-    await settle();
-    const audio = player.shadowRoot?.querySelector('audio');
+    const { options } = await mounted();
 
-    audio?.dispatchEvent(new Event('error'));
+    expect(options.pictureInPicture).toBe(false);
+    expect(player.shadowRoot?.querySelector('.cover h2')?.textContent).toBe('Oral history');
+    expect(player.shadowRoot?.querySelector('.cover img')?.getAttribute('src')).toBe('https://example.org/cover.jpg');
 
-    expect(audio?.crossOrigin).toBe(crossorigin);
-    expect(player.controller.state.status).toBe('error');
-    expect(fallback).not.toHaveBeenCalled();
+    player.config = { audioArt: { title: 'Listen & learn' } };
+    expect(player.shadowRoot?.querySelector('.cover h2')?.textContent).toBe('Listen & learn');
   });
 
-  it('retains an explicit empty policy and keeps cross-origin audio off Web Audio', async () => {
-    const { AudioContextMock } = installAudioContext();
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    player.config = { crossorigin: '', audioArt: { visualizer: true } };
+  it('remounts RAMP for another Canvas and lets go of the old media', async () => {
+    const player = document.createElement(tagName) as PlayerElement;
     document.body.append(player);
     await player.load(audioManifest);
-    await settle();
-    const audio = player.shadowRoot?.querySelector('audio');
-    audio?.dispatchEvent(new Event('loadedmetadata'));
-
-    expect(audio?.hasAttribute('crossorigin')).toBe(false);
-    expect(AudioContextMock).not.toHaveBeenCalled();
-  });
-
-  it('falls back once by replacing a failed implicit-CORS audio element', async () => {
-    const { AudioContextMock } = installAudioContext();
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    player.config = { audioArt: { visualizer: true } };
-    const fallback = vi.fn();
-    player.addEventListener('av-visualizerfallback', fallback);
-    document.body.append(player);
-    await player.load(audioManifest);
-    await settle();
-    const failed = player.shadowRoot?.querySelector('audio');
-
-    failed?.dispatchEvent(new Event('error'));
-    const replacement = player.shadowRoot?.querySelector('audio');
-
-    expect(replacement).not.toBe(failed);
-    expect(replacement?.hasAttribute('crossorigin')).toBe(false);
-    expect(replacement?.src).toBe('https://media.example.org/audio.mp3');
-    expect(player.controller.media).toBe(replacement);
-    expect(player.controller.state.status).not.toBe('error');
-    expect(AudioContextMock).not.toHaveBeenCalled();
-    expect(fallback).toHaveBeenCalledOnce();
-    expect((fallback.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
-      canvasId: 'https://example.org/audio-canvas',
-      sourceUrl: 'https://media.example.org/audio.mp3',
-      reason: 'cors',
-    });
-
-    failed?.dispatchEvent(new Event('error'));
-    replacement?.dispatchEvent(new Event('error'));
-    expect(fallback).toHaveBeenCalledOnce();
-  });
-
-  it('closes the old graph and resets fallback state when the source changes', async () => {
-    const { context } = installAudioContext();
-    const player = document.createElement(tagName) as ReturnType<typeof defineMangoAVPlayer>['prototype'];
-    player.config = { audioArt: { visualizer: true } };
-    document.body.append(player);
-    await player.load(twoCanvasAudioManifest);
-    await settle();
-    const first = player.shadowRoot?.querySelector('audio');
-    first?.dispatchEvent(new Event('loadedmetadata'));
+    const first = await mounted();
+    const media = document.createElement('audio');
+    first.options.onMedia(media);
 
     player.selectCanvas(1);
-    await settle();
-    const second = player.shadowRoot?.querySelector('audio');
+    const second = await mounted(2);
 
-    expect(context.close).toHaveBeenCalledOnce();
-    expect(second).not.toBe(first);
-    expect(second?.src).toBe('https://media.example.org/audio-2.mp3');
-    expect(second?.crossOrigin).toBe('anonymous');
+    expect(handles[0]?.destroy).toHaveBeenCalledOnce();
+    expect(player.controller.media).toBeUndefined();
+    expect(((second.options.manifest.items as Array<Record<string, unknown>>)[0])?.id).toBe('https://example.org/audio-canvas-2');
   });
 
-  it('uses the same safe fallback path in the complete media element', async () => {
-    const media = document.createElement(mediaTagName) as ReturnType<typeof defineMangoAVMedia>['prototype'];
-    media.config = { audioArt: { visualizer: true } };
-    const fallback = vi.fn();
-    media.addEventListener('av-visualizerfallback', fallback);
+  it('gives the player a stage slot for content shown with the media', async () => {
+    const player = document.createElement(tagName) as PlayerElement;
+    document.body.append(player);
+    await player.load(audioManifest);
+
+    // Inside the stage, after the audio card and before the controls.
+    expect(player.shadowRoot?.querySelector('.stage > .cover + .stage-slot > slot[name=stage]')).toBeTruthy();
+    expect(player.shadowRoot?.querySelector('.stage > .stage-slot + .ramp')).toBeTruthy();
+  });
+
+  it('puts audio captions in the complete element\'s player when configured', async () => {
+    const media = document.createElement(mediaTagName) as MediaElement;
+    media.config = { audioArt: { captions: 'line' } };
     document.body.append(media);
     await media.load(audioManifest);
-    await settle();
-    const failed = media.shadowRoot?.querySelector('audio');
 
-    failed?.dispatchEvent(new Event('error'));
-    const replacement = media.shadowRoot?.querySelector('audio');
+    const captions = media.shadowRoot?.querySelector<HTMLElement & { controller: AVPlayerController }>('[slot=stage]');
+    expect(captions?.parentElement?.matches('[data-component]')).toBe(true);
+    expect(captions?.hasAttribute('audio-only')).toBe(true);
+    expect(captions?.hasAttribute('line')).toBe(true);
+    expect(captions?.controller).toBe(media.controller);
 
-    expect(replacement).not.toBe(failed);
-    expect(replacement?.hasAttribute('crossorigin')).toBe(false);
-    expect(media.controller.media).toBe(replacement);
-    expect(fallback).toHaveBeenCalledOnce();
+    media.config = { audioArt: { captions: false } };
+    expect(media.shadowRoot?.querySelector('[slot=stage]')).toBeNull();
+  });
+
+  it('builds the complete element from the player and panels on one controller', async () => {
+    const media = document.createElement(mediaTagName) as MediaElement;
+    const ready = vi.fn();
+    media.addEventListener('av-ready', ready);
+    document.body.append(media);
+    await media.load(audioManifest);
+    await mounted();
+
+    const root = media.shadowRoot!;
+    const inner = root.querySelectorAll<HTMLElement & { controller: AVPlayerController }>('[data-component]');
+    expect(inner).toHaveLength(4);
+    inner.forEach((element) => expect(element.controller).toBe(media.controller));
+    expect(ready).toHaveBeenCalledOnce();
+
+    const tabs = [...root.querySelectorAll<HTMLElement>('[role=tab]')].map((tab) => tab.textContent);
+    expect(tabs).toEqual(['Transcript', 'Chapters', 'Annotations', 'Metadata', 'Files']);
+    expect(root.querySelector<HTMLElement>('[data-panel-body=transcript]')?.hidden).toBe(false);
+    root.querySelector<HTMLElement>('[data-panel=chapters]')?.click();
+    expect(root.querySelector<HTMLElement>('[data-panel-body=transcript]')?.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>('[data-panel-body=chapters]')?.hidden).toBe(false);
+    expect(root.querySelector('.position')?.textContent).toContain('Position');
   });
 });

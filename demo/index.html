@@ -12,9 +12,9 @@
       <div>
         <p class="eyebrow">@mango-iiif/av</p>
         <h1>AV configuration builder</h1>
-        <p>Explore IIIF audio, video, HLS, chapters, transcripts, annotations, and Media Chrome styling.</p>
+        <p>Explore IIIF audio, video, HLS, chapters, transcripts and annotations, played through Samvera RAMP.</p>
       </div>
-      <nav><a href="/composable.html">Composable demo</a><a href="/api.html">API documentation</a></nav>
+      <nav><a href="/composable.html">Composable demo</a><a href="/captions.html">Audio captions</a><a href="/api.html">API documentation</a></nav>
     </header>
 
     <main>
@@ -48,23 +48,6 @@
         <fieldset>
           <legend>Features</legend>
           <div id="feature-controls" class="checks"></div>
-          <label>Audio visualizer
-            <select id="audio-visualizer">
-              <option value="none">None</option>
-              <option value="pulse">Pulse</option>
-              <option value="waveform">Waveform</option>
-              <option value="spectrum">Spectrum</option>
-            </select>
-          </label>
-          <label>Visualizer follows accent
-            <input id="visualizer-follows-accent" type="checkbox" checked>
-          </label>
-          <label>Visualizer colour
-            <input id="visualizer-color" type="color" value="#5b3fd6" disabled>
-          </label>
-          <label>Visualizer intensity
-            <span class="range"><input id="visualizer-intensity" type="range" min="0" max="2" step=".05" value="1"><output id="visualizer-intensity-value" aria-hidden="true">1</output></span>
-          </label>
         </fieldset>
 
         <fieldset>
@@ -72,7 +55,7 @@
           <label>Accent <input id="accent" type="color" value="#5b3fd6"></label>
           <label>Background <input id="background" type="color" value="#ffffff"></label>
           <label>Corner radius <input id="radius" type="range" min="0" max="24" value="10"></label>
-          <label>Panel width <input id="panel-width" type="range" min="280" max="520" value="384"></label>
+          <label>List height <input id="list-height" type="range" min="160" max="640" value="384"></label>
         </fieldset>
 
         <details open>
@@ -84,7 +67,7 @@
 
       <section class="preview" aria-labelledby="preview-heading">
         <div class="preview-heading">
-          <div><p class="eyebrow">Live preview</p><h2 id="preview-heading">Media Chrome player</h2></div>
+          <div><p class="eyebrow">Live preview</p><h2 id="preview-heading">RAMP player</h2></div>
           <span id="event-status" role="status">Ready</span>
         </div>
         <mango-av-media id="player"></mango-av-media>

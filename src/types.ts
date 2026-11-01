@@ -157,6 +157,7 @@ export interface AVManifest {
   requiredStatement?: MetadataEntry;
   homepage?: string;
   logo?: string;
+  thumbnail?: string;
 }
 
 export interface AVControlsConfig {
@@ -187,22 +188,24 @@ export interface AVTranscriptConfig {
   download?: boolean;
   showNotes?: boolean;
   showMetadata?: boolean;
-  showSearchMarkers?: boolean;
 }
 
+/** The card shown above the controls for audio, in place of a picture. */
 export interface AVAudioArtConfig {
+  /** Heading for the card. Defaults to the Manifest label. */
   title?: string;
-  transcript?: boolean;
-  visualizer?: boolean | AVAudioVisualizerMode;
+  /**
+   * Show the transcript in the card as captions, as on video: `'context'` with
+   * the lines either side faded, `'line'` with only the line being spoken.
+   */
+  captions?: false | 'line' | 'context';
 }
 
-export type AVAudioVisualizerMode = 'pulse' | 'waveform' | 'spectrum';
-
+/** RAMP's playback position cache. RAMP offers to resume from a saved position. */
 export interface AVResumeConfig {
   enabled?: boolean;
   maxItems?: number;
   ttlDays?: number;
-  prompt?: boolean;
 }
 
 /** Package-owned interface strings. Values may contain `{name}` placeholders. */
@@ -222,17 +225,13 @@ export interface AVStrings {
   mediaSource: string;
   mediaInformation: string;
   download: string;
-  downloadMediaFile: string;
   searchTranscript: string;
-  transcriptSearchMatches: string;
-  searchMatchAt: string;
-  resumePrompt: string;
-  resume: string;
-  startOver: string;
+  captions: string;
+  position: string;
+  recording: string;
   loadingManifest: string;
   loadingTranscript: string;
   unableToLoadPlayer: string;
-  unableToLoadMedia: string;
   noMediaLoaded: string;
   noPlayableMedia: string;
   noManifest: string;
@@ -265,8 +264,8 @@ export interface AVPlayerConfig {
   startCanvasId?: string;
   startTime?: number;
   activePanel?: 'chapters' | 'transcript' | 'annotations' | 'metadata' | 'files' | 'none';
-  crossorigin?: 'anonymous' | 'use-credentials' | '';
-  preload?: 'none' | 'metadata' | 'auto';
+  /** Send credentials with the requests Video.js makes itself, such as HLS playlists and segments. */
+  withCredentials?: boolean;
   playbackRates?: number[];
   fetch?: typeof globalThis.fetch;
   requestInit?: RequestInit;
@@ -303,7 +302,6 @@ export interface AVPlayerEventMap {
   'av-annotationschange': { canvasId: string; annotations: AVAnnotation[] };
   'av-configchange': { config: Readonly<AVPlayerConfig> };
   'av-statechange': AVPlayerState;
-  'av-visualizerfallback': { canvasId: string; sourceUrl: string; reason: 'cors' };
 }
 
 export const defaultStrings: AVStrings = {
@@ -322,17 +320,13 @@ export const defaultStrings: AVStrings = {
   mediaSource: 'Media source',
   mediaInformation: 'Media information',
   download: 'Download',
-  downloadMediaFile: 'Download media file',
-  searchTranscript: 'Search transcript',
-  transcriptSearchMatches: 'Transcript search matches',
-  searchMatchAt: 'Search match at {time}',
-  resumePrompt: 'Resume from {time}?',
-  resume: 'Resume',
-  startOver: 'Start over',
+  searchTranscript: 'Find in transcript',
+  captions: 'Captions',
+  position: 'Position',
+  recording: 'Recording',
   loadingManifest: 'Loading IIIF manifest…',
   loadingTranscript: 'Loading transcript…',
   unableToLoadPlayer: 'Unable to load the player.',
-  unableToLoadMedia: 'Unable to load media.',
   noMediaLoaded: 'No media loaded',
   noPlayableMedia: 'No playable audio or video source',
   noManifest: 'No manifest is loaded.',
@@ -353,7 +347,7 @@ export const defaultStrings: AVStrings = {
 };
 
 export const defaultConfig: Required<
-  Pick<AVPlayerConfig, 'controls' | 'panels' | 'transcript' | 'audioArt' | 'resume' | 'strings' | 'preferredLanguages' | 'autoAdvance' | 'repeat' | 'activePanel' | 'crossorigin' | 'preload' | 'playbackRates'>
+  Pick<AVPlayerConfig, 'controls' | 'panels' | 'transcript' | 'audioArt' | 'resume' | 'strings' | 'preferredLanguages' | 'autoAdvance' | 'repeat' | 'activePanel' | 'withCredentials' | 'playbackRates'>
 > = {
   controls: {
     navigation: false,
@@ -381,25 +375,21 @@ export const defaultConfig: Required<
     download: true,
     showNotes: false,
     showMetadata: false,
-    showSearchMarkers: true,
   },
   audioArt: {
     title: '',
-    transcript: false,
-    visualizer: false,
+    captions: false,
   },
   resume: {
     enabled: false,
     maxItems: 200,
     ttlDays: 30,
-    prompt: true,
   },
   strings: defaultStrings,
   preferredLanguages: ['en', 'none'],
   autoAdvance: false,
   repeat: false,
-  activePanel: 'chapters',
-  crossorigin: '',
-  preload: 'metadata',
+  activePanel: 'transcript',
+  withCredentials: false,
   playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
 };

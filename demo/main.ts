@@ -1,5 +1,5 @@
 import '../src/index';
-import type { AVAudioVisualizerMode, AVPlayerConfig, MangoAVMediaElement } from '../src/index';
+import type { AVPlayerConfig, MangoAVMediaElement } from '../src/index';
 import { manifests } from './manifests';
 import './styles.css';
 
@@ -10,16 +10,10 @@ const manifestUrl = document.querySelector<HTMLInputElement>('#manifest-url');
 const loadManifest = document.querySelector<HTMLButtonElement>('#load-manifest');
 const language = document.querySelector<HTMLSelectElement>('#language');
 const featureControls = document.querySelector<HTMLElement>('#feature-controls');
-const audioVisualizer = document.querySelector<HTMLSelectElement>('#audio-visualizer');
-const visualizerFollowsAccent = document.querySelector<HTMLInputElement>('#visualizer-follows-accent');
-const visualizerColor = document.querySelector<HTMLInputElement>('#visualizer-color');
-const visualizerIntensity = document.querySelector<HTMLInputElement>('#visualizer-intensity');
-const visualizerIntensityValue = document.querySelector<HTMLOutputElement>('#visualizer-intensity-value');
 const generatedCode = document.querySelector<HTMLElement>('#generated-code');
 const eventStatus = document.querySelector<HTMLElement>('#event-status');
 
-if (!player || !preset || !manifestForm || !manifestUrl || !loadManifest || !language || !featureControls || !audioVisualizer || !generatedCode || !eventStatus
-  || !visualizerFollowsAccent || !visualizerColor || !visualizerIntensity || !visualizerIntensityValue) {
+if (!player || !preset || !manifestForm || !manifestUrl || !loadManifest || !language || !featureControls || !generatedCode || !eventStatus) {
   throw new Error('Demo controls could not be initialized.');
 }
 
@@ -37,7 +31,6 @@ const features = [
   ['navigation', 'Previous and next controls', false],
   ['autoAdvance', 'Auto-advance control', false],
   ['resume', 'Resume position', false],
-  ['audioTranscript', 'Transcript in audio artwork', false],
 ] as const;
 
 featureControls.innerHTML = features.map(([id, text, checked]) => `
@@ -97,25 +90,11 @@ const config = (): AVPlayerConfig => ({
     autoScroll: true,
     download: true,
   },
-  audioArt: {
-    transcript: featureEnabled('audioTranscript'),
-    visualizer: audioVisualizer.value === 'none' ? false : audioVisualizer.value as AVAudioVisualizerMode,
-  },
   resume: {
     enabled: featureEnabled('resume'),
   },
   autoAdvance: featureEnabled('autoAdvance'),
 });
-
-// Only the properties actually moved off their defaults are emitted, so the
-// snippet stays a minimal recipe rather than a dump of the whole surface.
-const visualizerStyleCode = (): string => {
-  const lines = [
-    visualizerFollowsAccent.checked ? '' : `player.style.setProperty('--mango-av-visualizer-color', '${visualizerColor.value}');`,
-    visualizerIntensity.value === '1' ? '' : `player.style.setProperty('--mango-av-visualizer-intensity', '${visualizerIntensity.value}');`,
-  ].filter(Boolean);
-  return lines.length === 0 ? '' : `\n${lines.join('\n')}`;
-};
 
 const updateCode = () => {
   const manifestAssignment = typeof player.manifest === 'string'
@@ -128,7 +107,7 @@ player.config = ${JSON.stringify(config(), null, 2)};
 player.manifest = ${manifestAssignment};
 
 /* Theme */
-player.style.setProperty('--mango-av-accent', '${getComputedStyle(player).getPropertyValue('--mango-av-accent').trim() || '#5b3fd6'}');${visualizerStyleCode()}`;
+player.style.setProperty('--mango-av-accent', '${getComputedStyle(player).getPropertyValue('--mango-av-accent').trim() || '#5b3fd6'}');`;
 };
 
 const update = () => {
@@ -162,10 +141,6 @@ manifestForm.addEventListener('submit', async (event) => {
 });
 language.addEventListener('change', update);
 featureControls.addEventListener('change', update);
-audioVisualizer.addEventListener('change', () => {
-  syncVisualizerControls();
-  update();
-});
 
 const bindStyle = (selector: string, property: string, unit = '') => {
   document.querySelector<HTMLInputElement>(selector)?.addEventListener('input', (event) => {
@@ -176,33 +151,7 @@ const bindStyle = (selector: string, property: string, unit = '') => {
 bindStyle('#accent', '--mango-av-accent');
 bindStyle('#background', '--mango-av-background');
 bindStyle('#radius', '--mango-av-radius', 'px');
-bindStyle('#panel-width', '--mango-av-panel-width', 'px');
-
-const syncVisualizerControls = () => {
-  const enabled = audioVisualizer.value !== 'none';
-  visualizerFollowsAccent.disabled = !enabled;
-  visualizerIntensity.disabled = !enabled;
-  visualizerColor.disabled = !enabled || visualizerFollowsAccent.checked;
-};
-
-/*
- * Leaving `--mango-av-visualizer-color` unset is what makes the visualizer
- * follow the accent, so "follows accent" removes the property rather than
- * copying the accent's current value into it — copying would freeze the
- * visualizer at today's accent and break the link.
- */
-const applyVisualizerStyle = () => {
-  syncVisualizerControls();
-  if (visualizerFollowsAccent.checked) player.style.removeProperty('--mango-av-visualizer-color');
-  else player.style.setProperty('--mango-av-visualizer-color', visualizerColor.value);
-  player.style.setProperty('--mango-av-visualizer-intensity', visualizerIntensity.value);
-  visualizerIntensityValue.value = visualizerIntensity.value;
-  updateCode();
-};
-
-visualizerFollowsAccent.addEventListener('change', applyVisualizerStyle);
-visualizerColor.addEventListener('input', applyVisualizerStyle);
-visualizerIntensity.addEventListener('input', applyVisualizerStyle);
+bindStyle('#list-height', '--mango-av-list-height', 'px');
 
 document.querySelector('#copy-code')?.addEventListener('click', async () => {
   await navigator.clipboard.writeText(generatedCode.textContent ?? '');
@@ -233,4 +182,4 @@ for (const type of ['av-ready', 'av-canvaschange', 'av-sourcechange', 'av-error'
 
 player.config = config();
 player.manifest = manifests.video;
-applyVisualizerStyle();
+updateCode();

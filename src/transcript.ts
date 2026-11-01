@@ -30,15 +30,20 @@ const cueFromBlock = (
   const start = parseTime(isSrt ? rawStart.replace(',', '.') : rawStart);
   const end = parseTime(isSrt ? rawEnd.replace(',', '.') : rawEnd);
   if (start === undefined || end === undefined) return undefined;
-  const text = stripMarkup(block.slice(timestampIndex + 1).join('\n'));
+  const body = block.slice(timestampIndex + 1).join('\n');
+  const text = stripMarkup(body);
   if (!text) return undefined;
-  return {
+  const cue: TranscriptCue = {
     id: `cue-${index}`,
     start,
     end,
     text,
     type: 'cue',
   };
+  // A WebVTT voice tag, `<v Ana>` or `<v.loud Ana>`, names who is speaking.
+  const speaker = /^<v(?:\.[^\s>]*)?\s+([^>]+)>/.exec(body.trimStart())?.[1]?.trim();
+  if (speaker) cue.speaker = speaker;
+  return cue;
 };
 
 export const parseTimedText = (
