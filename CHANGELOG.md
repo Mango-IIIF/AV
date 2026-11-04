@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.0.1
+
+- Fixed transcript lines being listed as annotations. A `supplementing` or `transcribing` item with an inline textual body becomes a transcript cue and is no longer also added to `canvas.annotations`, in embedded Annotation Pages and in those fetched by reference. Items with other motivations, and transcripts referenced by `id` such as WebVTT, are unchanged.
+- A configuration change no longer recreates the player or interrupts playback. `<mango-av-media>` keeps its `<mango-av-player>` and rebuilds only its captions and tabs, and the player refreshes its audio card and toolbar around RAMP. RAMP is still remounted when a setting it is mounted with changes: `preferredLanguages`, `playbackRates`, `withCredentials`, `resume`, `resolveRequest`, or the `captions`, `download`, `playbackRate`, `pictureInPicture`, `seek` and `skipSeconds` controls.
+
+## 1.0.0
 
 ### Playback through Samvera RAMP
 
