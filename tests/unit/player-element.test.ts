@@ -151,13 +151,52 @@ describe('MangoAVPlayerElement with RAMP', () => {
     expect(((second.options.manifest.items as Array<Record<string, unknown>>)[0])?.id).toBe('https://example.org/audio-canvas-2');
   });
 
+  it('keeps RAMP and playback through a change of strings or panels', async () => {
+    const media = document.createElement(mediaTagName) as MediaElement;
+    media.config = { controls: { navigation: true } };
+    document.body.append(media);
+    await media.load(audioManifest);
+    await mounted();
+    const root = media.shadowRoot!;
+    const player = root.querySelector<PlayerElement>('[data-component]');
+    const ramp = player?.shadowRoot?.querySelector('.ramp');
+
+    media.config = {
+      strings: { recording: 'Enregistrement', next: 'Suivant', transcript: 'Transcription' },
+      panels: { chapters: false },
+    };
+
+    expect(mountRamp).toHaveBeenCalledOnce();
+    expect(handles[0]?.destroy).not.toHaveBeenCalled();
+    expect(root.querySelector('[data-component]')).toBe(player);
+    expect(player?.shadowRoot?.querySelector('.ramp')).toBe(ramp);
+    expect(player?.shadowRoot?.querySelector('.eyebrow')?.textContent).toBe('Enregistrement');
+    expect(player?.shadowRoot?.querySelector('[data-action=next]')?.textContent).toContain('Suivant');
+    const tabs = [...root.querySelectorAll<HTMLElement>('[role=tab]')].map((tab) => tab.textContent);
+    expect(tabs).toEqual(['Transcription', 'Annotations', 'Metadata', 'Files']);
+  });
+
+  it('remounts RAMP when a setting it is mounted with changes', async () => {
+    const player = document.createElement(tagName) as PlayerElement;
+    document.body.append(player);
+    await player.load(videoManifest);
+    await mounted();
+
+    player.config = { controls: { playbackRate: false } };
+    const { options } = await mounted(2);
+
+    expect(handles[0]?.destroy).toHaveBeenCalledOnce();
+    expect(options.playbackRate).toBe(false);
+  });
+
   it('gives the player a stage slot for content shown with the media', async () => {
     const player = document.createElement(tagName) as PlayerElement;
     document.body.append(player);
     await player.load(audioManifest);
 
     // Inside the stage, after the audio card and before the controls.
-    expect(player.shadowRoot?.querySelector('.stage > .cover + .stage-slot > slot[name=stage]')).toBeTruthy();
+    expect(player.shadowRoot?.querySelector('.stage > [data-part=cover] > .cover')).toBeTruthy();
+    expect(player.shadowRoot?.querySelector('.stage > [data-part=cover] + .stage-slot > slot[name=stage]')).toBeTruthy();
     expect(player.shadowRoot?.querySelector('.stage > .stage-slot + .ramp')).toBeTruthy();
   });
 

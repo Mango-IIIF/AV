@@ -282,8 +282,6 @@ const collectSupplementing = (
       const annotation = asObject(item);
       if (!annotation) continue;
       const motivations = annotationMotivations(annotation);
-      const normalizedAnnotation = annotationFrom(annotation, canvasId, pageId, languages, index);
-      if (normalizedAnnotation) annotations.push(normalizedAnnotation);
       for (const body of bodyItems(annotation.body ?? annotation.resource)) {
         const bodyId = readId(body);
         if (bodyId && (motivations.includes('supplementing') || motivations.includes('transcribing') || motivations.length === 0)) {
@@ -293,7 +291,8 @@ const collectSupplementing = (
         }
       }
       const inline = textualBodies(annotation.body ?? annotation.resource);
-      if (inline.length > 0 && (motivations.includes('supplementing') || motivations.includes('transcribing'))) {
+      const isCue = inline.length > 0 && (motivations.includes('supplementing') || motivations.includes('transcribing'));
+      if (isCue) {
         const cues: TranscriptCue[] = inline.flatMap((body, bodyIndex) => {
           const text = typeof body.value === 'string' ? body.value : label(body.chars, languages);
           if (!text) return [];
@@ -322,6 +321,11 @@ const collectSupplementing = (
             });
           }
         }
+      }
+      // An item that became a transcript cue is not also an annotation.
+      if (!isCue) {
+        const normalizedAnnotation = annotationFrom(annotation, canvasId, pageId, languages, index);
+        if (normalizedAnnotation) annotations.push(normalizedAnnotation);
       }
       index += 1;
     }

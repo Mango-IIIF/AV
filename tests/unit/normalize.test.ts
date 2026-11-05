@@ -125,6 +125,114 @@ describe('normalizeManifest', () => {
     expect(fetcher).toHaveBeenCalledWith('https://example.org/list/1', undefined);
   });
 
+  describe('transcript lines and annotations', () => {
+    const transcriptPage = {
+      id: 'https://example.org/page/transcript',
+      type: 'AnnotationPage',
+      label: { en: ['Transcript'] },
+      items: [
+        {
+          id: 'https://example.org/transcript/1',
+          type: 'Annotation',
+          motivation: 'supplementing',
+          body: { type: 'TextualBody', value: 'First line', format: 'text/plain' },
+          target: 'https://example.org/canvas/1#t=0,4',
+        },
+        {
+          id: 'https://example.org/transcript/2',
+          type: 'Annotation',
+          motivation: ['transcribing'],
+          body: { type: 'TextualBody', value: 'Second line', format: 'text/plain' },
+          target: 'https://example.org/canvas/1#t=4,9',
+        },
+      ],
+    };
+    const commentPage = {
+      id: 'https://example.org/page/comments',
+      type: 'AnnotationPage',
+      items: [
+        {
+          id: 'https://example.org/comment/1',
+          type: 'Annotation',
+          motivation: 'tagging',
+          body: { type: 'TextualBody', value: 'chorus', purpose: 'tagging' },
+          target: 'https://example.org/canvas/1#t=10,20',
+        },
+        {
+          id: 'https://example.org/comment/2',
+          type: 'Annotation',
+          motivation: 'linking',
+          body: { type: 'TextualBody', value: 'See the score' },
+          target: 'https://example.org/canvas/1#t=30',
+        },
+      ],
+    };
+    const manifestWith = (annotations: unknown[]) => ({
+      id: 'https://example.org/manifest/transcript',
+      type: 'Manifest',
+      label: { en: ['Transcript test'] },
+      items: [{
+        id: 'https://example.org/canvas/1',
+        type: 'Canvas',
+        duration: 60,
+        items: [{
+          id: 'https://example.org/page/painting',
+          type: 'AnnotationPage',
+          items: [{
+            id: 'https://example.org/painting/1',
+            type: 'Annotation',
+            motivation: 'painting',
+            body: { id: 'https://example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' },
+            target: 'https://example.org/canvas/1',
+          }],
+        }],
+        annotations,
+      }],
+    });
+    const pageFetcher = () => vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const page = [transcriptPage, commentPage].find((candidate) => candidate.id === String(input));
+      return page
+        ? new Response(JSON.stringify(page), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : new Response('', { status: 404 });
+    });
+    const expectSeparated = (canvas: Awaited<ReturnType<typeof normalizeManifest>>['canvases'][number] | undefined) => {
+      const transcript = canvas?.transcripts.find((entry) => entry.id === 'https://example.org/page/transcript/inline-transcript');
+      expect(transcript?.cues?.map((cue) => cue.text)).toEqual(['First line', 'Second line']);
+      expect(canvas?.annotations.map((annotation) => annotation.id)).toEqual([
+        'https://example.org/comment/1',
+        'https://example.org/comment/2',
+      ]);
+      expect(canvas?.annotations[0]).toMatchObject({ motivation: ['tagging'], tags: ['chorus'], time: { start: 10, end: 20 } });
+    };
+
+    it('gives cues and no annotations for an embedded transcript page', async () => {
+      const manifest = await normalizeManifest(manifestWith([transcriptPage]));
+      expect(manifest.canvases[0]?.transcripts[0]?.cues).toHaveLength(2);
+      expect(manifest.canvases[0]?.annotations).toEqual([]);
+    });
+
+    it('gives cues and no annotations for a transcript page fetched by reference', async () => {
+      const fetch = pageFetcher();
+      const manifest = await normalizeManifest(manifestWith([{ id: transcriptPage.id, type: 'AnnotationPage' }]), { fetch });
+      expect(fetch).toHaveBeenCalledWith(transcriptPage.id, undefined);
+      expect(manifest.canvases[0]?.transcripts[0]?.cues).toHaveLength(2);
+      expect(manifest.canvases[0]?.annotations).toEqual([]);
+    });
+
+    it('keeps tagging and linking items as annotations in embedded pages', async () => {
+      const manifest = await normalizeManifest(manifestWith([transcriptPage, commentPage]));
+      expectSeparated(manifest.canvases[0]);
+    });
+
+    it('keeps tagging and linking items as annotations in pages fetched by reference', async () => {
+      const manifest = await normalizeManifest(manifestWith([
+        { id: transcriptPage.id, type: 'AnnotationPage' },
+        { id: commentPage.id, type: 'AnnotationPage' },
+      ]), { fetch: pageFetcher() });
+      expectSeparated(manifest.canvases[0]);
+    });
+  });
+
   it('rejects resources that are not manifests', async () => {
     await expect(normalizeManifest({ id: 'x', type: 'Collection', items: [] })).rejects.toThrow('Expected a IIIF Manifest');
   });

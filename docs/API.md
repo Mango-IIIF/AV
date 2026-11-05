@@ -110,7 +110,7 @@ const controller = new AVPlayerController({
 });
 ```
 
-The placeholders `{number}`, `{time}`, `{status}`, `{statusText}`, and `{type}` are retained until rendering. Translation values can therefore be supplied through either the TypeScript API or the JSON `config` attribute. `controller.configure({ strings })` updates all connected components and emits `av-configchange`.
+The placeholders `{number}`, `{time}`, `{status}`, `{statusText}`, and `{type}` are retained until rendering. Translation values can therefore be supplied through either the TypeScript API or the JSON `config` attribute. `controller.configure({ strings })` updates all connected components and emits `av-configchange`. Playback carries on through a change of strings, panels or other settings that RAMP is not mounted with.
 
 String keys cover:
 

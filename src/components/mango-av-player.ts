@@ -46,6 +46,7 @@ const styles = `${componentTheme}
     padding: 0 10px;
   }
   .toolbar button:disabled { cursor: default; opacity: .5; }
+  .part { display: contents; }
   .sr-only { clip: rect(0,0,0,0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 
   /*
@@ -105,6 +106,7 @@ export class MangoAVPlayerElement extends AVControllerElement {
   #rampCss = '';
   #media: HTMLMediaElement | undefined;
   #mountToken = 0;
+  #mounted: { key: string; resolveRequest: AVPlayerConfig['resolveRequest'] } | undefined;
 
   constructor() {
     super();
@@ -168,7 +170,10 @@ export class MangoAVPlayerElement extends AVControllerElement {
   }
 
   protected handleControllerEvent<K extends keyof AVPlayerEventMap>(type: K, event: CustomEvent<AVPlayerEventMap[K]>): void {
-    if (type === 'av-ready' || type === 'av-canvaschange' || type === 'av-sourcechange' || type === 'av-configchange' || type === 'av-loadstart') {
+    if (type === 'av-configchange' && this.#mountedWithCurrentConfig()) {
+      // Nothing RAMP was mounted with has changed, so playback carries on.
+      this.#update();
+    } else if (type === 'av-ready' || type === 'av-canvaschange' || type === 'av-sourcechange' || type === 'av-configchange' || type === 'av-loadstart') {
       this.#render();
     } else if (type === 'av-error' && !this.#ramp) {
       // RAMP reports media errors over its own player; only a failed load is shown here.
@@ -207,27 +212,80 @@ export class MangoAVPlayerElement extends AVControllerElement {
       <div class="player" data-kind="${source?.kind ?? 'video'}" data-hide="${this.#hiddenControls()}" style="${this.#aspectStyle(canvas, source)}">${body}</div>`;
     this.#bind();
     const host = this.#root.querySelector<HTMLElement>('.ramp');
-    if (host && canvas && source) void this.#mount(host);
+    if (host && canvas && source) {
+      this.#mounted = { key: this.#mountKey(), resolveRequest: this.controller.config.resolveRequest };
+      void this.#mount(host);
+    }
+  }
+
+  /* Refreshes what lies around RAMP, such as strings, the audio card and the toolbar, without remounting it. */
+  #update(): void {
+    const canvas = this.controller.canvas;
+    const source = this.controller.source;
+    if (!canvas || !source) return this.#render();
+    const ui = resolveStrings(this.controller.config.strings);
+    const player = this.#root.querySelector<HTMLElement>('.player');
+    player?.setAttribute('data-hide', this.#hiddenControls());
+    player?.setAttribute('style', this.#aspectStyle(canvas, source));
+    this.#root.querySelector('.stage')?.setAttribute('aria-label', ui.mediaPlayer);
+    const cover = this.#root.querySelector('[data-part=cover]');
+    if (cover) cover.innerHTML = this.#coverHtml(canvas, source);
+    const toolbar = this.#root.querySelector('[data-part=toolbar]');
+    if (toolbar) toolbar.innerHTML = this.#toolbarHtml(canvas);
+    this.#bind();
+  }
+
+  /* The settings RAMP is mounted with; a change to any of them needs a new RAMP. */
+  #mountKey(): string {
+    const config = this.controller.config;
+    const { controls } = config;
+    return JSON.stringify([
+      this.controller.manifest?.id,
+      this.controller.canvas?.id,
+      this.controller.source?.id,
+      config.preferredLanguages,
+      config.playbackRates,
+      config.withCredentials,
+      config.resume,
+      [controls.captions, controls.download, controls.playbackRate, controls.pictureInPicture, controls.seek, controls.skipSeconds],
+    ]);
+  }
+
+  #mountedWithCurrentConfig(): boolean {
+    return this.#mounted !== undefined
+      && this.#mounted.key === this.#mountKey()
+      && this.#mounted.resolveRequest === this.controller.config.resolveRequest;
   }
 
   #readyHtml(canvas: AVCanvas, source: MediaSource): string {
-    const controls = this.controller.config.controls;
-    const manifest = this.controller.manifest;
     const ui = resolveStrings(this.controller.config.strings);
-    const title = this.controller.config.audioArt.title || manifest?.label || canvas.label;
-    const cover = canvas.poster ?? manifest?.thumbnail;
-    const showSourceSelector = controls.sourceSelector && canvas.sources.length > 1;
-    const showToolbar = controls.navigation || controls.autoAdvance || showSourceSelector;
     return `<div class="stage" aria-label="${escapeHtml(ui.mediaPlayer)}" role="region">
-        ${source.kind === 'audio' ? `<div class="cover">
-          ${cover ? `<img src="${escapeHtml(cover)}" alt="">` : ''}
-          <div><span class="eyebrow">${escapeHtml(ui.recording)}</span><h2>${escapeHtml(title)}</h2></div>
-        </div>` : ''}
+        <div class="part" data-part="cover">${this.#coverHtml(canvas, source)}</div>
         <div class="stage-slot"><slot name="stage"></slot></div>
         <div class="ramp"></div>
       </div>
       <slot name="after-player"></slot>
-      ${showToolbar ? `<div class="toolbar">
+      <div class="part" data-part="toolbar">${this.#toolbarHtml(canvas)}</div>`;
+  }
+
+  #coverHtml(canvas: AVCanvas, source: MediaSource): string {
+    if (source.kind !== 'audio') return '';
+    const manifest = this.controller.manifest;
+    const ui = resolveStrings(this.controller.config.strings);
+    const title = this.controller.config.audioArt.title || manifest?.label || canvas.label;
+    const cover = canvas.poster ?? manifest?.thumbnail;
+    return `<div class="cover">
+          ${cover ? `<img src="${escapeHtml(cover)}" alt="">` : ''}
+          <div><span class="eyebrow">${escapeHtml(ui.recording)}</span><h2>${escapeHtml(title)}</h2></div>
+        </div>`;
+  }
+
+  #toolbarHtml(canvas: AVCanvas): string {
+    const controls = this.controller.config.controls;
+    const ui = resolveStrings(this.controller.config.strings);
+    const showSourceSelector = controls.sourceSelector && canvas.sources.length > 1;
+    const showToolbar = controls.navigation || controls.autoAdvance || showSourceSelector;
+    return `${showToolbar ? `<div class="toolbar">
         ${controls.navigation ? `<div class="group">
           <button type="button" data-action="previous" aria-label="${escapeHtml(ui.previousSection)}">← ${escapeHtml(ui.previous)}</button>
           <button type="button" data-action="next" aria-label="${escapeHtml(ui.nextSection)}">${escapeHtml(ui.next)} →</button>
@@ -321,6 +379,7 @@ export class MangoAVPlayerElement extends AVControllerElement {
     this.#media = undefined;
     this.#ramp?.destroy();
     this.#ramp = undefined;
+    this.#mounted = undefined;
   }
 }
 

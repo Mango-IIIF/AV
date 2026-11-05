@@ -51,6 +51,7 @@ const styles = `${componentTheme}${panelStyles}
   .header h2 { font-size: 1.15rem; margin: 0; }
   .header p { color: var(--mango-av-muted); margin: .35rem 0 0; }
   .embedded { ${inheritedTokens} --mango-av-panel-background: transparent; --mango-av-panel-border: 0; --mango-av-panel-padding: 0; }
+  .panels { display: contents; }
   .position { font-size: 14px; margin: 0; }
   .position span { color: var(--mango-av-muted); }
   .tabs { background: var(--mango-av-surface); border-radius: 8px; display: flex; gap: 4px; overflow-x: auto; padding: 4px; }
@@ -116,9 +117,14 @@ export class MangoAVMediaElement extends HTMLElementBase {
     this.player = new AVPlayerController();
     for (const type of controllerEventTypes) {
       this.player.addEventListener(type, ((event: CustomEvent) => {
-        if (type === 'av-ready' || type === 'av-configchange') {
+        if (type === 'av-ready') {
           this.#activePanel = this.player.config.activePanel;
           this.#render();
+        } else if (type === 'av-configchange') {
+          // The player stays, and with it playback; it follows the change itself.
+          this.#activePanel = this.player.config.activePanel;
+          this.#renderCaptions();
+          this.#renderPanels();
         } else if (type === 'av-canvaschange') {
           this.#renderDetails();
         } else if (type === 'av-statechange') {
@@ -219,8 +225,55 @@ export class MangoAVMediaElement extends HTMLElementBase {
     ] as const).filter((value): value is [Panel, string] => Boolean(value));
   }
 
-  /* Rebuilt for a new Manifest or configuration; the components inside follow the controller from there. */
+  /* Rebuilt for a new Manifest; the components inside follow the controller from there. */
   #render(): void {
+    const manifest = this.player.manifest;
+    const tag = tags();
+    this.#root.innerHTML = `<style>${styles}</style><div class="shell">
+      <slot name="header">
+        ${manifest ? `<header class="header"><h2>${escapeHtml(manifest.label)}</h2>${manifest.summary ? `<p>${escapeHtml(manifest.summary)}</p>` : ''}</header>` : ''}
+      </slot>
+      <slot name="before-player"></slot>
+      <${tag.player} class="embedded" data-component></${tag.player}>
+      <slot name="after-player"></slot>
+      <div class="panels"></div>
+    </div>`;
+    const player = this.#root.querySelector<MangoAVPlayerElement>(tag.player);
+    if (player) {
+      player.forwardEvents = false;
+      player.controller = this.player;
+    }
+    this.#renderCaptions();
+    this.#renderPanels();
+  }
+
+  /* The audio captions shown in the player's stage, as configured. */
+  #renderCaptions(): void {
+    const tag = tags();
+    const player = this.#root.querySelector<MangoAVPlayerElement>(tag.player);
+    if (!player) return;
+    const captions = this.player.config.audioArt.captions;
+    let element = [...player.children].find((child): child is AVControllerElement => child.localName === tag.captions);
+    if (!captions) {
+      element?.remove();
+      return;
+    }
+    if (!element) {
+      element = document.createElement(tag.captions) as AVControllerElement;
+      element.className = 'embedded';
+      element.setAttribute('data-component', '');
+      element.setAttribute('slot', 'stage');
+      element.setAttribute('audio-only', '');
+      player.append(element);
+      element.controller = this.player;
+    }
+    element.toggleAttribute('line', captions === 'line');
+  }
+
+  /* The position and tabs under the player, rebuilt for a new Manifest or configuration. */
+  #renderPanels(): void {
+    const container = this.#root.querySelector<HTMLElement>('.panels');
+    if (!container) return;
     const manifest = this.player.manifest;
     const ui = resolveStrings(this.player.config.strings);
     const panels = this.#panels(ui);
@@ -228,15 +281,7 @@ export class MangoAVMediaElement extends HTMLElementBase {
     const showPanels = this.#activePanel !== 'none' && panels.length > 0;
     const hiddenHeading = '<span slot="heading" hidden></span>';
     const tag = tags();
-    const captions = this.player.config.audioArt.captions;
-    this.#root.innerHTML = `<style>${styles}</style><div class="shell">
-      <slot name="header">
-        ${manifest ? `<header class="header"><h2>${escapeHtml(manifest.label)}</h2>${manifest.summary ? `<p>${escapeHtml(manifest.summary)}</p>` : ''}</header>` : ''}
-      </slot>
-      <slot name="before-player"></slot>
-      <${tag.player} class="embedded" data-component>${captions ? `<${tag.captions} class="embedded" data-component slot="stage" audio-only ${captions === 'line' ? 'line' : ''}></${tag.captions}>` : ''}</${tag.player}>
-      <slot name="after-player"></slot>
-      ${manifest ? '<p class="position" aria-live="off"></p>' : ''}
+    container.innerHTML = `${manifest ? '<p class="position" aria-live="off"></p>' : ''}
       ${manifest && showPanels ? `
         <div class="tabs" role="tablist" aria-label="${escapeHtml(ui.mediaInformation)}">
           ${panels.map(([id, text]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-controls="panel-${id}" data-panel="${id}" aria-selected="${this.#activePanel === id}">${escapeHtml(text)}</button>`).join('')}
@@ -251,13 +296,10 @@ export class MangoAVMediaElement extends HTMLElementBase {
               default: return `<div ${attributes}></div>`;
             }
           }).join('')}
-        </div>` : ''}
-    </div>`;
-    const player = this.#root.querySelector<MangoAVPlayerElement>(tag.player);
-    if (player) player.forwardEvents = false;
-    this.#root.querySelectorAll<AVControllerElement>('[data-component]').forEach((element) => { element.controller = this.player; });
-    this.#root.querySelectorAll<HTMLElement>('[data-panel]').forEach((tab) => tab.addEventListener('click', () => this.#selectPanel(tab.dataset.panel as Panel)));
-    this.#root.querySelector('.tabs')?.addEventListener('keydown', (event) => this.#moveTab(event as KeyboardEvent));
+        </div>` : ''}`;
+    container.querySelectorAll<AVControllerElement>('[data-component]').forEach((element) => { element.controller = this.player; });
+    container.querySelectorAll<HTMLElement>('[data-panel]').forEach((tab) => tab.addEventListener('click', () => this.#selectPanel(tab.dataset.panel as Panel)));
+    container.querySelector('.tabs')?.addEventListener('keydown', (event) => this.#moveTab(event as KeyboardEvent));
     this.#renderDetails();
     this.#renderPosition();
   }
