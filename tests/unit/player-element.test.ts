@@ -238,4 +238,22 @@ describe('MangoAVPlayerElement with RAMP', () => {
     expect(root.querySelector<HTMLElement>('[data-panel-body=chapters]')?.hidden).toBe(false);
     expect(root.querySelector('.position')?.textContent).toContain('Position');
   });
+
+  it('omits the tab bar when only a single panel is enabled', async () => {
+    const media = document.createElement(mediaTagName) as MediaElement;
+    media.config = {
+      panels: { transcript: true, chapters: false, annotations: false, metadata: false, supplementalFiles: false },
+      activePanel: 'transcript',
+    };
+    document.body.append(media);
+    await media.load(audioManifest);
+    await mounted();
+
+    const root = media.shadowRoot!;
+    expect(root.querySelector('[role=tablist]')).toBeNull();
+    expect(root.querySelectorAll('[role=tab]')).toHaveLength(0);
+    const panel = root.querySelector<HTMLElement>('[data-panel-body=transcript]');
+    expect(panel).not.toBeNull();
+    expect(panel?.hidden).toBe(false);
+  });
 });

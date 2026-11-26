@@ -279,16 +279,19 @@ export class MangoAVMediaElement extends HTMLElementBase {
     const panels = this.#panels(ui);
     if (!panels.some(([id]) => id === this.#activePanel) && this.#activePanel !== 'none') this.#activePanel = panels[0]?.[0] ?? 'none';
     const showPanels = this.#activePanel !== 'none' && panels.length > 0;
+    const showTabs = panels.length > 1;
     const hiddenHeading = '<span slot="heading" hidden></span>';
     const tag = tags();
     container.innerHTML = `${manifest ? '<p class="position" aria-live="off"></p>' : ''}
       ${manifest && showPanels ? `
-        <div class="tabs" role="tablist" aria-label="${escapeHtml(ui.mediaInformation)}">
+        ${showTabs ? `<div class="tabs" role="tablist" aria-label="${escapeHtml(ui.mediaInformation)}">
           ${panels.map(([id, text]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-controls="panel-${id}" data-panel="${id}" aria-selected="${this.#activePanel === id}">${escapeHtml(text)}</button>`).join('')}
-        </div>
+        </div>` : ''}
         <div class="details">
           ${panels.map(([id]) => {
-            const attributes = `id="panel-${id}" role="tabpanel" aria-labelledby="tab-${id}" data-panel-body="${id}" ${this.#activePanel === id ? '' : 'hidden'}`;
+            const attributes = showTabs
+              ? `id="panel-${id}" role="tabpanel" aria-labelledby="tab-${id}" data-panel-body="${id}" ${this.#activePanel === id ? '' : 'hidden'}`
+              : `id="panel-${id}" data-panel-body="${id}"`;
             switch (id) {
               case 'transcript':
               case 'chapters':
