@@ -1,6 +1,6 @@
 {
   "name": "@mango-iiif/av",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Framework-free IIIF audio and video components powered by Samvera RAMP.",
   "license": "MIT",
   "type": "module",

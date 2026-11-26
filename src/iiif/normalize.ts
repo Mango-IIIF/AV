@@ -369,6 +369,53 @@ const posterFrom = (canvas: JsonObject): string | undefined => {
   return firstContentId(placeholder);
 };
 
+const normaliseTranscriptLabel = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const languagesCompatible = (a?: string, b?: string): boolean => {
+  if (!a || !b) return true;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+};
+
+/**
+ * Collapses duplicate representations of the same transcript on a canvas:
+ * - identical `src` URLs (e.g. a WebVTT listed in both `annotations` and `rendering`)
+ * - an inline-cue AnnotationPage repeating a file-backed transcript with the same label and compatible language
+ * Distinct transcripts (different languages or labels) are preserved.
+ */
+const dedupeTranscripts = (transcripts: TranscriptResource[]): TranscriptResource[] => {
+  const unique: TranscriptResource[] = [];
+  for (const candidate of transcripts) {
+    const duplicate = unique.find((existing) => {
+      if (candidate.src && existing.src && candidate.src === existing.src) return true;
+      if (
+        normaliseTranscriptLabel(candidate.label) === normaliseTranscriptLabel(existing.label) &&
+        languagesCompatible(candidate.language, existing.language) &&
+        Boolean(candidate.cues?.length) !== Boolean(existing.cues?.length)
+      ) {
+        return true;
+      }
+      return false;
+    });
+    if (!duplicate) {
+      unique.push(candidate);
+      continue;
+    }
+    if (!duplicate.language && candidate.language) duplicate.language = candidate.language;
+    if (!duplicate.src && candidate.src) duplicate.src = candidate.src;
+    if (!duplicate.format && candidate.format) duplicate.format = candidate.format;
+  }
+  return unique;
+};
+
+const dedupeTracks = (tracks: TextTrack[]): TextTrack[] => {
+  const seen = new Set<string>();
+  return tracks.filter((track) => {
+    if (seen.has(track.src)) return false;
+    seen.add(track.src);
+    return true;
+  });
+};
+
 const canvasFrom = (
   canvas: JsonObject,
   index: number,
@@ -390,8 +437,8 @@ const canvasFrom = (
     label: label(canvas.label, languages, formatString(ui.sectionNumber, { number: index + 1 })),
     behavior: strings(canvas.behavior ?? canvas.viewingHint),
     sources,
-    tracks: supplementing.tracks,
-    transcripts: [...supplementing.transcripts, ...renderingTranscripts(canvas.rendering, languages, ui)],
+    tracks: dedupeTracks(supplementing.tracks),
+    transcripts: dedupeTranscripts([...supplementing.transcripts, ...renderingTranscripts(canvas.rendering, languages, ui)]),
     annotations: supplementing.annotations,
     rendering: downloads(canvas.rendering, languages, ui),
     metadata: metadata(canvas.metadata, languages, ui),
@@ -545,8 +592,8 @@ export const normalizeManifest = async (
         }
       }));
       const parsed = collectSupplementing(loaded.filter((page): page is JsonObject => Boolean(page)), target.id, languages, ui);
-      target.tracks.push(...parsed.tracks);
-      target.transcripts.push(...parsed.transcripts);
+      target.tracks = dedupeTracks([...target.tracks, ...parsed.tracks]);
+      target.transcripts = dedupeTranscripts([...target.transcripts, ...parsed.transcripts]);
       target.annotations.push(...parsed.annotations);
     }));
   }

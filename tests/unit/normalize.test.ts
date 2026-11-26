@@ -231,6 +231,125 @@ describe('normalizeManifest', () => {
       ]), { fetch: pageFetcher() });
       expectSeparated(manifest.canvases[0]);
     });
+
+    it('deduplicates a transcript exposed via supplementing VTT, canvas rendering, and external cue page', async () => {
+      const sharedLabel = { en: ['English transcript (machine generated, unreviewed)'] };
+      const vttUrl = 'https://example.org/transcript-en.vtt';
+      const externalCuePage = {
+        id: 'https://example.org/transcript-en-annotations.json',
+        type: 'AnnotationPage',
+        label: sharedLabel,
+        items: [
+          {
+            id: 'https://example.org/cue/1',
+            type: 'Annotation',
+            motivation: 'supplementing',
+            body: { type: 'TextualBody', value: 'First line', format: 'text/plain', language: 'en' },
+            target: 'https://example.org/canvas/1#t=0,4',
+          },
+        ],
+      };
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify(externalCuePage), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      );
+      const manifest = await normalizeManifest({
+        id: 'https://example.org/manifest/dedupe',
+        type: 'Manifest',
+        label: { en: ['Dedupe test'] },
+        items: [{
+          id: 'https://example.org/canvas/1',
+          type: 'Canvas',
+          duration: 60,
+          items: [{
+            id: 'https://example.org/page/painting',
+            type: 'AnnotationPage',
+            items: [{
+              id: 'https://example.org/painting/1',
+              type: 'Annotation',
+              motivation: 'painting',
+              body: { id: 'https://example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' },
+              target: 'https://example.org/canvas/1',
+            }],
+          }],
+          rendering: [{
+            id: vttUrl,
+            type: 'Text',
+            format: 'text/vtt',
+            language: 'en',
+            label: sharedLabel,
+          }],
+          annotations: [
+            {
+              id: 'https://example.org/page/captions',
+              type: 'AnnotationPage',
+              items: [{
+                id: 'https://example.org/annotation/captions',
+                type: 'Annotation',
+                motivation: 'supplementing',
+                body: { id: vttUrl, type: 'Text', format: 'text/vtt', language: 'en', label: sharedLabel },
+                target: 'https://example.org/canvas/1',
+              }],
+            },
+            { id: externalCuePage.id, type: 'AnnotationPage', label: sharedLabel },
+          ],
+        }],
+      }, { fetch: fetcher });
+
+      expect(manifest.canvases[0]?.transcripts).toHaveLength(1);
+      expect(manifest.canvases[0]?.transcripts[0]).toMatchObject({
+        src: vttUrl,
+        format: 'text/vtt',
+        language: 'en',
+        label: 'English transcript (machine generated, unreviewed)',
+      });
+    });
+
+    it('keeps distinct transcripts in different languages', async () => {
+      const manifest = await normalizeManifest({
+        id: 'https://example.org/manifest/multilang',
+        type: 'Manifest',
+        label: { en: ['Multilingual test'] },
+        items: [{
+          id: 'https://example.org/canvas/1',
+          type: 'Canvas',
+          duration: 60,
+          items: [{
+            id: 'https://example.org/page/painting',
+            type: 'AnnotationPage',
+            items: [{
+              id: 'https://example.org/painting/1',
+              type: 'Annotation',
+              motivation: 'painting',
+              body: { id: 'https://example.org/audio.mp3', type: 'Sound', format: 'audio/mpeg' },
+              target: 'https://example.org/canvas/1',
+            }],
+          }],
+          annotations: [{
+            id: 'https://example.org/page/captions',
+            type: 'AnnotationPage',
+            items: [
+              {
+                id: 'https://example.org/annotation/en',
+                type: 'Annotation',
+                motivation: 'supplementing',
+                body: { id: 'https://example.org/en.vtt', type: 'Text', format: 'text/vtt', language: 'en', label: { en: ['English'] } },
+                target: 'https://example.org/canvas/1',
+              },
+              {
+                id: 'https://example.org/annotation/cy',
+                type: 'Annotation',
+                motivation: 'supplementing',
+                body: { id: 'https://example.org/cy.vtt', type: 'Text', format: 'text/vtt', language: 'cy', label: { en: ['Welsh'] } },
+                target: 'https://example.org/canvas/1',
+              },
+            ],
+          }],
+        }],
+      });
+
+      expect(manifest.canvases[0]?.transcripts).toHaveLength(2);
+      expect(manifest.canvases[0]?.transcripts.map((t) => t.language)).toEqual(['en', 'cy']);
+    });
   });
 
   it('rejects resources that are not manifests', async () => {
